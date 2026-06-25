@@ -4,6 +4,9 @@ debug_mode: true
 states:
   game:
     keybinds:
+      "F8":
+        action: "test_click"
+        description: "Test Klick Phase 6"
       "1":
         action: "skill_1"
         description: "Primärer Skill"

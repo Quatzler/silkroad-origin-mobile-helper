@@ -1,9 +1,11 @@
 from unittest.mock import MagicMock
 
 from silkroad_companion.application.focus_tracker import FocusTracker
+from silkroad_companion.application.mapping_engine import MappingEngine
 from silkroad_companion.application.window_tracker import WindowTracker
 from silkroad_companion.domain.config import AppConfig
 from silkroad_companion.domain.models import AppState
+from silkroad_companion.application.vision_engine import VisionEngine
 from silkroad_companion.presentation.main_window import MainWindow
 
 
@@ -15,7 +17,9 @@ def test_main_window_creation(qtbot):
     """Testet ob das Hauptfenster erstellt werden kann."""
     mock_focus = MagicMock(spec=FocusTracker)
     mock_window = MagicMock(spec=WindowTracker)
+    mock_vision = MagicMock(spec=VisionEngine)
+    mock_mapping = MagicMock(spec=MappingEngine)
     config = AppConfig()
-    window = MainWindow(mock_focus, mock_window, config)
+    window = MainWindow(mock_focus, mock_window, mock_vision, config, mock_mapping)
     qtbot.addWidget(window)
     assert window.windowTitle() == "Silkroad Companion"

@@ -32,6 +32,28 @@ uv sync
 uv run python main.py
 ```
 
+#### Linux Berechtigungen (Hotkeys & Klicks)
+
+Damit die globalen Hotkeys und Klicks funktionieren, benötigt die Anwendung unter Linux Zugriff auf `/dev/input/` und `/dev/uinput`.
+
+**Option A (Empfohlen): udev Rule**
+Erstelle eine Datei `/etc/udev/rules.d/99-silkroad.rules`:
+```text
+KERNEL=="uinput", GROUP="input", MODE="0660"
+KERNEL=="event*", GROUP="input", MODE="0660"
+```
+Füge deinen User der Gruppe `input` hinzu:
+```bash
+sudo usermod -aG input $USER
+```
+Danach musst du den Computer neu starten, damit die Gruppenänderung für deine gesamte Desktop-Session (inkl. Wayland) übernommen wird.
+
+**Option B (Schnell): Mit sudo**
+Wenn du `sudo` verwenden musst, stelle sicher, dass die Umgebung korrekt übergeben wird:
+```bash
+sudo env "PATH=$PATH" uv run python main.py
+```
+
 ### Tests ausführen
 
 ```bash

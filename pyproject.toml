@@ -5,10 +5,12 @@ description = "Specialized input mapper for Silkroad Origin Mobile on Waydroid"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "opencv-python-headless>=4.13.0.92",
-    "pydantic>=2.13.4",
-    "pyside6>=6.11.1",
-    "pyyaml>=6.0.3",
+    "evdev>=1.9.3",
+    "opencv-python>=4.11.0.86",
+    "pydantic>=2.10.6",
+    "pynput>=1.7.7",
+    "pyside6>=6.8.2.1",
+    "pyyaml>=6.0.2",
 ]
 
 [dependency-groups]
