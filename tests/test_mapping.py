@@ -78,9 +78,9 @@ def test_mapping_engine_test_click():
     # Ausführen
     callback()
 
-    # Da wir QTimer.singleShot nutzen, müssen wir ggf. Events verarbeiten
-    # In diesem Test simulieren wir aber direkt den Aufruf der internen Methode
-    engine._execute_action("F8", "test_click")
+    # Früher mussten wir _execute_action manuell aufrufen,
+    # da QTimer im Test ohne Event-Loop nicht feuerte.
+    # Jetzt feuert der Fallback in MappingEngine automatisch.
 
     # Prüfen ob MouseService gerufen wurde
     mock_mouse.click_relative.assert_called_once_with(0.5, 0.5, info)

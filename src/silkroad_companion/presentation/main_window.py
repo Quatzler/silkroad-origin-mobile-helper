@@ -73,10 +73,8 @@ class MainWindow(QMainWindow):
         # Kleines Feedback in der UI ob Frames kommen
         if self.vision_engine.last_frame.size > 0:
             self.vision_label.setText("Vision: Aktiv (Frame erfasst)")
-        elif not self.mapping_engine._is_enabled:
-            self.vision_label.setText("Vision: Bereit (Warte auf Fokus)")
-        # Wenn wir im Fokus sind, aber kein Frame kommt (Wayland),
-        # lassen wir den Text bei "Vision: Aktiv", der in update_focus_status gesetzt wird.
+        # Wir überschreiben den Status hier nicht mehr blind,
+        # da update_focus_status sich um die Grundzustände kümmert.
 
     def update_window_info(self, info: WindowInfo) -> None:
         if info.width > 0:

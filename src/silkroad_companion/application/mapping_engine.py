@@ -61,10 +61,16 @@ class MappingEngine:
     def _create_callback(self, key: str, action: str):
         def callback() -> None:
             # Wir nutzen einen Timer, um die Aktion im GUI-Thread auszuführen,
-            # da pynput Callbacks in einem eigenen Thread laufen.
-            # Das verhindert Blocking und Synchronisationsprobleme.
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(0, lambda: self._execute_action(key, action))
+            # da evdev Callbacks in einem eigenen Thread laufen.
+            # Wir übergeben QCoreApplication.instance() als Context, um sicherzustellen,
+            # dass der Callback im Haupt-Thread (GUI-Thread) ausgeführt wird.
+            from PySide6.QtCore import QCoreApplication, QTimer
+            app = QCoreApplication.instance()
+            if app:
+                QTimer.singleShot(0, app, lambda: self._execute_action(key, action))
+            else:
+                # Fallback für Tests ohne laufende App
+                self._execute_action(key, action)
         return callback
 
     def _execute_action(self, key: str, action: str) -> None:
