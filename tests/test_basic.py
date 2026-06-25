@@ -20,6 +20,7 @@ def test_main_window_creation(qtbot):
     mock_vision = MagicMock(spec=VisionEngine)
     mock_mapping = MagicMock(spec=MappingEngine)
     config = AppConfig()
-    window = MainWindow(mock_focus, mock_window, mock_vision, config, mock_mapping)
+    mock_loader = MagicMock()
+    window = MainWindow(mock_focus, mock_window, mock_vision, config, mock_mapping, mock_loader)
     qtbot.addWidget(window)
     assert window.windowTitle() == "Silkroad Companion"

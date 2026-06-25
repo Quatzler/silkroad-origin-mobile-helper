@@ -33,7 +33,7 @@ def main() -> None:
     vision_engine = VisionEngine(vision_service, window_tracker)
     mapping_engine = MappingEngine(input_service, mouse_service, window_tracker, config)
 
-    window = MainWindow(focus_tracker, window_tracker, vision_engine, config, mapping_engine)
+    window = MainWindow(focus_tracker, window_tracker, vision_engine, config, mapping_engine, config_loader)
     window.show()
 
     sys.exit(app.exec())

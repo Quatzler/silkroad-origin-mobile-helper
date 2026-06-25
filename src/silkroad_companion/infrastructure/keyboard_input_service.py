@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 
 class KeyboardInputService(InputService):
     def __init__(self) -> None:
-        self._callbacks: dict[int, Callable[[], None]] = {}
+        self._down_callbacks: dict[int, Callable[[], None]] = {}
+        self._up_callbacks: dict[int, Callable[[], None]] = {}
         self._devices: list[evdev.InputDevice] = []
         self._stop_event = threading.Event()
         self._threads: list[threading.Thread] = []
@@ -30,11 +31,13 @@ class KeyboardInputService(InputService):
         mapping["esc"] = ecodes.KEY_ESC
         return mapping
 
-    def bind_key(self, key: str, callback: Callable[[], None]) -> None:
+    def bind_key(self, key: str, down_callback: Callable[[], None], up_callback: Optional[Callable[[], None]] = None) -> None:
         normalized_key = key.lower()
         if normalized_key in self._key_names_to_codes:
             code = self._key_names_to_codes[normalized_key]
-            self._callbacks[code] = callback
+            self._down_callbacks[code] = down_callback
+            if up_callback:
+                self._up_callbacks[code] = up_callback
             print(f"Evdev: Hotkey registriert: {key} (Code: {code})", flush=True)
             logger.info(f"Hotkey registriert: {key} (Code: {code})")
         else:
@@ -96,10 +99,14 @@ class KeyboardInputService(InputService):
 
                 if event.type == ecodes.EV_KEY:
                     # value 1 = key down, 0 = key up, 2 = key hold
-                    if event.value == 1:
-                        if event.code in self._callbacks:
-                            print(f"Evdev: Hotkey erkannt! Code={event.code} ({device.name})", flush=True)
-                            self._callbacks[event.code]()
+                    if event.value == 1: # Down
+                        if event.code in self._down_callbacks:
+                            print(f"Evdev: Hotkey gedrückt! Code={event.code} ({device.name})", flush=True)
+                            self._down_callbacks[event.code]()
+                    elif event.value == 0: # Up
+                        if event.code in self._up_callbacks:
+                            print(f"Evdev: Hotkey losgelassen! Code={event.code} ({device.name})", flush=True)
+                            self._up_callbacks[event.code]()
         except (OSError, Exception) as e:
             # Errno 9 (Bad file descriptor) tritt auf, wenn wir das Device schließen
             # während der read_loop noch blockiert. Das ist ein beabsichtigter Abbruch.
@@ -124,5 +131,6 @@ class KeyboardInputService(InputService):
 
     def unbind_all(self) -> None:
         self.stop_listener()
-        self._callbacks.clear()
+        self._down_callbacks.clear()
+        self._up_callbacks.clear()
         logger.info("Alle Hotkeys entfernt.")

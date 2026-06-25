@@ -1,35 +1,93 @@
-refresh_rate_ms: 1000
+refresh_rate_ms: 500
 debug_mode: true
 
 states:
   game:
+    joystick:
+      center_x: 0.15
+      center_y: 0.75
+      radius: 0.05
     keybinds:
       "F8":
         action: "test_click"
         description: "Test Klick Phase 6"
       "1":
         action: "skill_1"
-        description: "Primärer Skill"
+        x: 0.65
+        y: 0.8
+        description: "Primärer Skill (Config Coord)"
       "2":
         action: "skill_2"
+        x: 0.7
+        y: 0.8
       "3":
         action: "skill_3"
+        x: 0.75
+        y: 0.8
       "4":
         action: "skill_4"
+        x: 0.825
+        y: 0.8
       "5":
         action: "skill_5"
+        x: 0.65
+        y: 0.9
       "6":
         action: "skill_6"
+        x: 0.7
+        y: 0.9
       "7":
         action: "skill_7"
+        x: 0.75
+        y: 0.9
       "8":
         action: "skill_8"
-      "9":
+        x: 0.8
+        y: 0.9
+      "F1":
+        action: "skill_8"
+        x: 0.675
+        y: 0.7
+      "F2":
+        action: "skill_8"
+        x: 0.75
+        y: 0.7
+      "F3":
+        action: "skill_8"
+        x: 0.8
+        y: 0.7
+      "F4":
+        action: "skill_8"
+        x: 0.85
+        y: 0.7
+      "TAB":
         action: "skill_9"
+        x: 0.875
+        y: 0.9
+      "SPACE":
+        action: "attack"
+        x: 0.95
+        y: 0.9
+      "I":
+        action: "inventory"
+        x: 0.85
+        y: 0.05
+      "M":
+        action: "map"
+        x: 0.15
+        y: 0.225
       "W":
         action: "move_forward"
+      "A":
+        action: "move_left"
+      "S":
+        action: "move_backward"
+      "D":
+        action: "move_right"
   inventory:
     keybinds:
       "ESC":
         action: "back_button_click"
-        description: "Zurück-Button oben links"
+        x: 0.05
+        y: 0.05
+        description: "Zurück-Button (Config Coord)"

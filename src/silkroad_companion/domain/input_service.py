@@ -6,8 +6,8 @@ if TYPE_CHECKING:
 
 class InputService(ABC):
     @abstractmethod
-    def bind_key(self, key: str, callback: Callable[[], None]) -> None:
-        """Bindet eine Taste an einen Callback."""
+    def bind_key(self, key: str, down_callback: Callable[[], None], up_callback: Optional[Callable[[], None]] = None) -> None:
+        """Bindet eine Taste an Callbacks für Drücken und Loslassen."""
         pass
 
     @abstractmethod
@@ -19,6 +19,16 @@ class MouseService(ABC):
     @abstractmethod
     def click_relative(self, x: float, y: float, window_info: "WindowInfo") -> None:
         """Führt einen Klick relativ zum Fenster aus (0.0 - 1.0)."""
+        pass
+
+    @abstractmethod
+    def press_relative(self, x: float, y: float, window_info: "WindowInfo") -> None:
+        """Drückt die linke Maustaste an einer relativen Position."""
+        pass
+
+    @abstractmethod
+    def release_relative(self, x: float, y: float, window_info: "WindowInfo") -> None:
+        """Lässt die linke Maustaste an einer relativen Position los."""
         pass
 
     @abstractmethod

@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QFileSystemWatcher
 from PySide6.QtWidgets import QLabel, QMainWindow, QVBoxLayout, QWidget
 
 from silkroad_companion.application.focus_tracker import FocusTracker
@@ -7,6 +7,7 @@ from silkroad_companion.application.vision_engine import VisionEngine
 from silkroad_companion.application.window_tracker import WindowTracker
 from silkroad_companion.domain.config import AppConfig
 from silkroad_companion.domain.models import AppState, WindowInfo
+from silkroad_companion.infrastructure.config_loader import ConfigLoader
 
 
 class MainWindow(QMainWindow):
@@ -17,6 +18,7 @@ class MainWindow(QMainWindow):
         vision_engine: VisionEngine,
         config: AppConfig,
         mapping_engine: MappingEngine,
+        config_loader: ConfigLoader,
     ) -> None:
         super().__init__()
         self.focus_tracker = focus_tracker
@@ -24,6 +26,7 @@ class MainWindow(QMainWindow):
         self.vision_engine = vision_engine
         self.config = config
         self.mapping_engine = mapping_engine
+        self.config_loader = config_loader
         self.setWindowTitle("Silkroad Companion")
         self.resize(400, 300)
 
@@ -64,6 +67,11 @@ class MainWindow(QMainWindow):
         self.focus_tracker.subscribe(self.update_focus_status)
         self.window_tracker.subscribe(self.update_window_info)
         self.vision_engine.subscribe(self.update_game_state)
+
+        # Hot Reload für Konfiguration
+        self.watcher = QFileSystemWatcher(self)
+        self.watcher.addPath("config/settings.yaml")
+        self.watcher.fileChanged.connect(self._reload_config)
 
         # Timer für regelmäßige Prüfung
         self.timer = QTimer(self)
@@ -117,3 +125,21 @@ class MainWindow(QMainWindow):
         else:
             self.vision_label.setText("Vision: Bereit (Warte auf Fokus)")
             print("Waydroid nicht fokussiert", flush=True)
+
+    def _reload_config(self, path: str) -> None:
+        print(f"Hot Reload: Konfiguration geändert ({path})", flush=True)
+        try:
+            new_config = self.config_loader.load()
+            self.config = new_config
+            self.mapping_engine.config = new_config
+
+            # Falls Engine aktiv ist, Mappings neu anwenden
+            if self.mapping_engine._is_enabled:
+                self.mapping_engine.input_service.unbind_all()
+                self.mapping_engine._apply_mappings()
+
+            self.config_label.setText(f"Config: {len(self.config.states)} States geladen (RELOADED)")
+            print("Konfiguration erfolgreich neu geladen.", flush=True)
+        except Exception as e:
+            print(f"Fehler beim Hot Reload: {e}", flush=True)
+            self.config_label.setText(f"Config Error: {e}")

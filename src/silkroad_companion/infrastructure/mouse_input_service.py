@@ -25,41 +25,59 @@ class EvdevMouseService(MouseService):
             return None
 
     def click_relative(self, x: float, y: float, window_info: WindowInfo) -> None:
+        self.press_relative(x, y, window_info)
+        time.sleep(0.05)
+        self.release_relative(x, y, window_info)
+
+    def press_relative(self, x: float, y: float, window_info: WindowInfo) -> None:
         if not window_info or window_info.width == 0:
-            logger.warning("Klick abgebrochen: Keine Fensterinformationen.")
             return
 
         abs_x = int(window_info.x + (window_info.width * x))
         abs_y = int(window_info.y + (window_info.height * y))
 
-        # 1. Cursor bewegen (Lokaler Import von pynput, um Testprobleme zu vermeiden)
-        try:
-            from pynput.mouse import Controller
-            mouse = Controller()
-            mouse.position = (abs_x, abs_y)
-            time.sleep(0.05)
-        except Exception as e:
-            logger.warning(f"Fehler beim Bewegen des Cursors: {e}")
+        # Cursor bewegen
+        self.move_relative(x, y, window_info)
+        time.sleep(0.02)
 
-        # 2. Klick via uinput senden
+        # Down via uinput
         if self._ui:
             try:
                 self._ui.write(ecodes.EV_KEY, ecodes.BTN_LEFT, 1) # Down
                 self._ui.syn()
-                time.sleep(0.05)
-                self._ui.write(ecodes.EV_KEY, ecodes.BTN_LEFT, 0) # Up
-                self._ui.syn()
-                logger.info(f"Klick via uinput bei ({abs_x}, {abs_y})")
+                logger.debug(f"Maus-Down bei ({abs_x}, {abs_y})")
             except Exception as e:
-                logger.error(f"Fehler beim Senden des uinput-Klicks: {e}")
+                logger.error(f"Fehler beim Senden des uinput-Down: {e}")
         else:
-            logger.warning("uinput Gerät nicht vorhanden, sende Klick via pynput (Fallback)")
             try:
                 from pynput.mouse import Button, Controller
                 mouse = Controller()
-                mouse.click(Button.left, 1)
+                mouse.press(Button.left)
             except Exception as e:
-                logger.error(f"Fallback-Klick fehlgeschlagen: {e}")
+                logger.error(f"Fallback-Down fehlgeschlagen: {e}")
+
+    def release_relative(self, x: float, y: float, window_info: WindowInfo) -> None:
+        if not window_info or window_info.width == 0:
+            return
+
+        abs_x = int(window_info.x + (window_info.width * x))
+        abs_y = int(window_info.y + (window_info.height * y))
+
+        # Up via uinput
+        if self._ui:
+            try:
+                self._ui.write(ecodes.EV_KEY, ecodes.BTN_LEFT, 0) # Up
+                self._ui.syn()
+                logger.debug(f"Maus-Up bei ({abs_x}, {abs_y})")
+            except Exception as e:
+                logger.error(f"Fehler beim Senden des uinput-Up: {e}")
+        else:
+            try:
+                from pynput.mouse import Button, Controller
+                mouse = Controller()
+                mouse.release(Button.left)
+            except Exception as e:
+                logger.error(f"Fallback-Up fehlgeschlagen: {e}")
 
     def move_relative(self, x: float, y: float, window_info: WindowInfo) -> None:
         abs_x = int(window_info.x + (window_info.width * x))
