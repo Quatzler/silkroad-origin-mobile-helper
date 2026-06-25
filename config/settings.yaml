@@ -1,0 +1,17 @@
+refresh_rate_ms: 1000
+debug_mode: true
+
+states:
+  game:
+    keybinds:
+      "1":
+        action: "skill_1"
+        description: "Primärer Skill"
+      "2":
+        action: "skill_2"
+      "W":
+        action: "move_forward"
+  inventory:
+    keybinds:
+      "i":
+        action: "close_inventory"
