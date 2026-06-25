@@ -6,7 +6,7 @@ from silkroad_companion.application.mapping_engine import MappingEngine
 from silkroad_companion.application.vision_engine import VisionEngine
 from silkroad_companion.application.window_tracker import WindowTracker
 from silkroad_companion.domain.config import AppConfig
-from silkroad_companion.domain.models import WindowInfo
+from silkroad_companion.domain.models import AppState, WindowInfo
 
 
 class MainWindow(QMainWindow):
@@ -56,9 +56,14 @@ class MainWindow(QMainWindow):
         self.vision_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.vision_label)
 
+        self.state_label = QLabel("State: UNKNOWN")
+        self.state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.state_label)
+
         # Tracker abonnieren
         self.focus_tracker.subscribe(self.update_focus_status)
         self.window_tracker.subscribe(self.update_window_info)
+        self.vision_engine.subscribe(self.update_game_state)
 
         # Timer für regelmäßige Prüfung
         self.timer = QTimer(self)
@@ -83,6 +88,11 @@ class MainWindow(QMainWindow):
             )
         else:
             self.geometry_label.setText("Geometrie: Unbekannt")
+
+    def update_game_state(self, state: AppState) -> None:
+        self.state_label.setText(f"State: {state.name}")
+        # Synchronisiere Mapping Engine mit State
+        self.mapping_engine.set_state(state.name.lower())
 
     def update_focus_status(self, is_focused: bool, window_title: str) -> None:
         # Mapping Engine aktivieren/deaktivieren basierend auf Fokus

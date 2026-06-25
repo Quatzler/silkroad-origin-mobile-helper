@@ -31,8 +31,34 @@ class OpenCVVisionService(VisionService):
         )
 
         if pixmap.isNull():
-            # Unter Wayland ist das oft ein Rechteproblem oder fehlender Portal-Support
-            # Wir loggen es nur einmal pro Minute, um die Konsole nicht zu fluten
+            # Fallback auf Spectacle unter Wayland (KDE Plasma 6)
+            try:
+                import subprocess
+                import os
+                temp_file = "/tmp/sro_capture.png"
+                # -b: background, -n: no notify, -a: active window, -o: output
+                # Wir nutzen spectacle um das aktive Fenster zu erfassen
+                result = subprocess.run(
+                    ["spectacle", "-b", "-n", "-a", "-o", temp_file],
+                    capture_output=True,
+                    timeout=2
+                )
+                if result.returncode == 0 and os.path.exists(temp_file):
+                    arr = cv2.imread(temp_file)
+                    try:
+                        os.remove(temp_file)
+                    except OSError:
+                        pass
+
+                    if arr is not None:
+                        # Spectacle liefert das Bild bereits in BGR (via cv2.imread)
+                        # Wir müssen es aber eventuell noch auf den Bereich zuschneiden,
+                        # falls Spectacle mehr als nur den Inhalt erfasst (Schatten/Rahmen).
+                        # Aber für Template Matching reicht es oft so.
+                        return arr
+            except Exception as e:
+                logger.debug(f"Spectacle Fallback fehlgeschlagen: {e}")
+
             return np.array([])
 
         # QPixmap -> QImage -> numpy
@@ -51,6 +77,11 @@ class OpenCVVisionService(VisionService):
 
     def find_template(self, image: np.ndarray, template: np.ndarray, threshold: float = 0.8) -> bool:
         if image.size == 0 or template.size == 0:
+            return False
+
+        # OpenCV matchTemplate erfordert, dass das Bild mindestens so groß wie das Template ist
+        if image.shape[0] < template.shape[0] or image.shape[1] < template.shape[1]:
+            logger.debug(f"Bild ({image.shape}) ist kleiner als Template ({template.shape}).")
             return False
 
         res = cv2.matchTemplate(image, template, cv2.TM_CCOEFF_NORMED)

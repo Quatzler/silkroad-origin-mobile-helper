@@ -84,3 +84,34 @@ def test_mapping_engine_test_click():
 
     # Prüfen ob MouseService gerufen wurde
     mock_mouse.click_relative.assert_called_once_with(0.5, 0.5, info)
+
+def test_mapping_engine_back_button_click():
+    mock_input = MagicMock(spec=InputService)
+    mock_mouse = MagicMock(spec=MouseService)
+    mock_window_tracker = MagicMock(spec=WindowTracker)
+    mock_window_service = MagicMock()
+    mock_window_tracker.window_service = mock_window_service
+
+    config = AppConfig(states={
+        "inventory": StateConfig(keybinds={
+            "ESC": KeyBind(action="back_button_click")
+        })
+    })
+
+    # Mock window info
+    info = WindowInfo(x=100, y=100, width=1000, height=1000, focused=True)
+    mock_window_service.get_window_info.return_value = info
+
+    engine = MappingEngine(mock_input, mock_mouse, mock_window_tracker, config)
+    engine.set_state("inventory")
+    engine.set_enabled(True)
+
+    # Callback holen
+    args, _ = mock_input.bind_key.call_args
+    callback = args[1]
+
+    # Ausführen
+    callback()
+
+    # Prüfen ob MouseService gerufen wurde (0.05, 0.05)
+    mock_mouse.click_relative.assert_called_once_with(0.05, 0.05, info)

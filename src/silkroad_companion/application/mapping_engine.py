@@ -24,6 +24,7 @@ class MappingEngine:
         if self._is_enabled == enabled:
             return
 
+        logger.info(f"Mapping Engine enabled set to: {enabled}")
         self._is_enabled = enabled
         if enabled:
             self._apply_mappings()
@@ -35,6 +36,7 @@ class MappingEngine:
         if self._current_state == state_name:
             return
 
+        logger.info(f"Mapping Engine State Wechsel: {self._current_state} -> {state_name}")
         self._current_state = state_name
         if self._is_enabled:
             # Re-apply mappings for new state
@@ -79,14 +81,39 @@ class MappingEngine:
         print(f"Hotkey {key} gedrückt -> Action: {action}", flush=True)
         logger.info(f"Hotkey {key} gedrückt -> Action: {action}")
 
+        # Aktuelle Fenster-Info holen
+        window_info = self.window_tracker.window_service.get_window_info()
+        if not window_info or not window_info.focused:
+            logger.warning("Aktion abgebrochen: Fenster nicht fokussiert oder keine Info.")
+            return
+
         # Phase 6: Test-Klick bei F8
         if action == "test_click":
-            # Wir holen uns die aktuelle Info direkt vom Service,
-            # um sicherzustellen, dass sie absolut frisch ist.
-            window_info = self.window_tracker.window_service.get_window_info()
-            if window_info and window_info.focused:
-                # Klick in die Mitte des Fensters
-                print(f"Relativer Klick bei (0.5, 0.5) -> Absolut ({window_info.x + window_info.width//2}, {window_info.y + window_info.height//2})", flush=True)
-                self.mouse_service.click_relative(0.5, 0.5, window_info)
-            else:
-                logger.warning("Klick abgebrochen: Fenster nicht fokussiert oder keine Info.")
+            # Klick in die Mitte des Fensters
+            print(f"Relativer Klick bei (0.5, 0.5) -> Absolut ({window_info.x + window_info.width//2}, {window_info.y + window_info.height//2})", flush=True)
+            self.mouse_service.click_relative(0.5, 0.5, window_info)
+
+        # Phase 8: Zurück-Button Klick (oben links) im Inventar oder Menüs
+        elif action == "back_button_click":
+            # Oben links ist oft der Zurück-Button (Android Standard)
+            # Sagen wir 5% vom Rand
+            rel_x, rel_y = 0.05, 0.05
+            print(f"Zurück-Klick bei ({rel_x}, {rel_y}) -> Absolut ({int(window_info.x + window_info.width*rel_x)}, {int(window_info.y + window_info.height*rel_y)})", flush=True)
+            self.mouse_service.click_relative(rel_x, rel_y, window_info)
+
+        # Phase 9: Skill Mapping 1-9
+        elif action.startswith("skill_"):
+            try:
+                skill_num = int(action.split("_")[1])
+                # Silkroad Skills 1-9 sind unten in der Mitte/Rechts Leiste.
+                # Wir definieren hier beispielhaft Koordinaten (muss später verfeinert werden).
+                # Typische Position für Skill 1 (links in der Leiste): 0.6, 0.9
+                # Skill 2: 0.65, 0.9 usw.
+                base_x = 0.6
+                spacing = 0.05
+                rel_x = base_x + (skill_num - 1) * spacing
+                rel_y = 0.9
+                print(f"Skill {skill_num} Klick bei ({rel_x}, {rel_y})", flush=True)
+                self.mouse_service.click_relative(rel_x, rel_y, window_info)
+            except (ValueError, IndexError):
+                logger.error(f"Ungültige Skill-Aktion: {action}")

@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 
 class AppState(Enum):
+    LOGIN = auto()
     GAME = auto()
     INVENTORY = auto()
     MAP = auto()

@@ -97,15 +97,16 @@ class KeyboardInputService(InputService):
                 if event.type == ecodes.EV_KEY:
                     # value 1 = key down, 0 = key up, 2 = key hold
                     if event.value == 1:
-                        # DEBUG: Zeige JEDEN Tastendruck in der Konsole zur Diagnose
-                        # logger.debug(f"Taste erkannt - Code: {event.code} auf {device.name}")
-
                         if event.code in self._callbacks:
                             print(f"Evdev: Hotkey erkannt! Code={event.code} ({device.name})", flush=True)
                             self._callbacks[event.code]()
         except (OSError, Exception) as e:
-            if not self._stop_event.is_set():
-                logger.warning(f"Listener für {device.name} beendet: {e}")
+            # Errno 9 (Bad file descriptor) tritt auf, wenn wir das Device schließen
+            # während der read_loop noch blockiert. Das ist ein beabsichtigter Abbruch.
+            if self._stop_event.is_set() or (isinstance(e, OSError) and e.errno == 9):
+                logger.debug(f"Listener für {device.name} sauber beendet.")
+            else:
+                logger.warning(f"Listener für {device.name} unerwartet beendet: {e}")
 
     def stop_listener(self) -> None:
         self._stop_event.set()

@@ -3,6 +3,10 @@ from collections.abc import Callable
 from silkroad_companion.domain.focus_service import FocusService
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 class FocusTracker:
     def __init__(self, focus_service: FocusService) -> None:
         self.focus_service = focus_service
@@ -19,6 +23,7 @@ class FocusTracker:
 
         # Nur benachrichtigen wenn sich etwas geändert hat
         if is_focused != self._last_focus_state or window_title != self._last_window_title:
+            logger.info(f"Fokus-Änderung: {is_focused} ({window_title})")
             self._last_focus_state = is_focused
             self._last_window_title = window_title
             self._notify(is_focused, window_title)
