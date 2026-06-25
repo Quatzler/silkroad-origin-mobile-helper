@@ -35,13 +35,13 @@ def test_mapping_engine_state_switch():
     mock_window = MagicMock(spec=WindowTracker)
     config = AppConfig(states={
         "game": StateConfig(keybinds={"F8": KeyBind(action="game_act")}),
-        "inventory": StateConfig(keybinds={"I": KeyBind(action="inv_act")})
+        "menu": StateConfig(keybinds={"I": KeyBind(action="inv_act")})
     })
     engine = MappingEngine(mock_input, mock_mouse, mock_window, config)
     engine.set_enabled(True)
 
     mock_input.bind_key.reset_mock()
-    engine.set_state("inventory")
+    engine.set_state("menu")
 
     # Muss unbind_all aufrufen und dann neue Keys binden
     mock_input.unbind_all.assert_called()
@@ -95,7 +95,7 @@ def test_mapping_engine_back_button_click():
     mock_window_tracker.window_service = mock_window_service
 
     config = AppConfig(states={
-        "inventory": StateConfig(keybinds={
+        "menu": StateConfig(keybinds={
             "ESC": KeyBind(action="back_button_click")
         })
     })
@@ -105,7 +105,7 @@ def test_mapping_engine_back_button_click():
     mock_window_service.get_window_info.return_value = info
 
     engine = MappingEngine(mock_input, mock_mouse, mock_window_tracker, config)
-    engine.set_state("inventory")
+    engine.set_state("menu")
     engine.set_enabled(True)
 
     # Callback holen

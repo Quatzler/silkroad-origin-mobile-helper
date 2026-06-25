@@ -15,10 +15,11 @@ class VisionEngine:
         self._last_frame: np.ndarray = np.array([])
         self._current_state: AppState = AppState.UNKNOWN
         self._state_observers: list[callable] = []
-        self._templates: dict[AppState, list[np.ndarray]] = {
+        self._templates: dict[AppState, list[tuple[str, np.ndarray]]] = {
             AppState.LOGIN: [],
             AppState.GAME: [],
-            AppState.INVENTORY: [],
+            AppState.MENU: [],
+            AppState.CHAT: [],
         }
         self._load_templates()
 
@@ -36,7 +37,7 @@ class VisionEngine:
                         path = os.path.join(state_path, file)
                         template = cv2.imread(path)
                         if template is not None:
-                            self._templates[state].append(template)
+                            self._templates[state].append((file, template))
                             logger.info(f"Template geladen für {state.name}: {file}")
 
     def subscribe(self, callback: callable) -> None:
@@ -62,22 +63,22 @@ class VisionEngine:
 
     def _analyze_state(self) -> None:
         # Template-Matching für jeden registrierten State
-        # Wir priorisieren INVENTORY und LOGIN vor GAME
+        # Wir priorisieren MENU, CHAT und LOGIN vor GAME
 
         # 1. Spezifische Zustände prüfen
-        for state in [AppState.INVENTORY, AppState.LOGIN]:
-            for template in self._templates[state]:
+        for state in [AppState.MENU, AppState.CHAT, AppState.LOGIN]:
+            for filename, template in self._templates[state]:
                 if self.vision_service.find_template(self._last_frame, template):
                     if self._current_state != state:
-                        logger.info(f"Template-Match: {state.name} erkannt")
+                        logger.info(f"Template-Match: {state.name} erkannt ({filename})")
                     self._set_state(state)
                     return
 
         # 2. Prüfen ob wir im GAME sind (via Minimap o.ä.)
-        for template in self._templates[AppState.GAME]:
+        for filename, template in self._templates[AppState.GAME]:
             if self.vision_service.find_template(self._last_frame, template):
                 if self._current_state != AppState.GAME:
-                    logger.info("Template-Match: GAME erkannt (Minimap)")
+                    logger.info(f"Template-Match: GAME erkannt ({filename})")
                 self._set_state(AppState.GAME)
                 return
 

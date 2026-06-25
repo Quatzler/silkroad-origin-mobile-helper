@@ -6,7 +6,8 @@ from pydantic import BaseModel
 class AppState(Enum):
     LOGIN = auto()
     GAME = auto()
-    INVENTORY = auto()
+    MENU = auto()
+    CHAT = auto()
     MAP = auto()
     NPC_DIALOG = auto()
     SKILLS = auto()

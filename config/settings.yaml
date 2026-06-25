@@ -76,6 +76,10 @@ states:
         action: "map"
         x: 0.15
         y: 0.225
+      "C":
+        action: "char"
+        x: 0.05
+        y: 0.05
       "W":
         action: "move_forward"
       "A":
@@ -84,10 +88,16 @@ states:
         action: "move_backward"
       "D":
         action: "move_right"
-  inventory:
+  menu:
     keybinds:
       "ESC":
         action: "back_button_click"
         x: 0.05
         y: 0.05
         description: "Zurück-Button (Config Coord)"
+  chat:
+    keybinds:
+      "ESC":
+        action: "back_button_click"
+        x: 0.05
+        y: 0.05

@@ -44,18 +44,18 @@ def test_vision_engine_state_transitions():
 
     engine = VisionEngine(mock_service, mock_tracker)
 
-    # Simuliere gefundenes Inventory Template
-    inv_template = np.ones((10, 10, 3), dtype=np.uint8)
-    engine._templates[AppState.INVENTORY] = [inv_template]
+    # Simuliere gefundenes Menu Template
+    menu_template = np.ones((10, 10, 3), dtype=np.uint8)
+    engine._templates[AppState.MENU] = [("test_menu.png", menu_template)]
 
-    # find_template soll True geben wenn das inv_template gesucht wird
+    # find_template soll True geben wenn das menu_template gesucht wird
     def side_effect(img, templ, threshold=0.8):
-        return np.array_equal(templ, inv_template)
+        return np.array_equal(templ, menu_template)
 
     mock_service.find_template.side_effect = side_effect
 
     engine.update()
-    assert engine.current_state == AppState.INVENTORY
+    assert engine.current_state == AppState.MENU
 
 def test_vision_engine_fallback_to_game():
     mock_service = MagicMock(spec=VisionService)
@@ -86,7 +86,7 @@ def test_vision_engine_image_smaller_than_template():
 
     # Template ist 100x100 (größer als Bild)
     large_template = np.zeros((100, 100, 3), dtype=np.uint8)
-    engine._templates[AppState.INVENTORY] = [large_template]
+    engine._templates[AppState.MENU] = [("large.png", large_template)]
 
     # find_template sollte False zurückgeben (ohne zu crashen)
     mock_service.find_template.return_value = False
