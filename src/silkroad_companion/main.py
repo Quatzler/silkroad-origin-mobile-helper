@@ -12,6 +12,7 @@ from silkroad_companion.infrastructure.keyboard_input_service import EvdevInputS
 from silkroad_companion.infrastructure.touch_input_service import EvdevTouchService
 from silkroad_companion.infrastructure.kwin_focus_service import KWinFocusService
 from silkroad_companion.infrastructure.opencv_vision_service import OpenCVVisionService
+from silkroad_companion.infrastructure.adb_service import ADBService
 from silkroad_companion.presentation.main_window import MainWindow
 
 
@@ -26,12 +27,13 @@ def main() -> None:
 
     # Dependency Injection
     focus_service = KWinFocusService()
+    adb_service = ADBService()  # Neuer ADB-Service
     focus_tracker = FocusTracker(focus_service)
     window_tracker = WindowTracker(focus_service)
     input_service = EvdevInputService()
     touch_service = EvdevTouchService()
 
-    # Bildschirmgr\u00f6\u00dfe f\u00fcr Touch-Mapping setzen (Gesamter Desktop-Bereich)
+    # Bildschirmgröße für Touch-Mapping setzen (Gesamter Desktop-Bereich)
     total_rect = None
     for screen in app.screens():
         if total_rect is None:
@@ -49,12 +51,25 @@ def main() -> None:
         
         # Touch-Kalibrierung aus Config laden
         touch_service.set_calibration(config.touch_calibration)
+        
+        # ADB-basierte Kalibrierung versuchen (falls verfügbar)
+        if adb_service.is_waydroid_running():
+            display_size = adb_service.get_display_size()
+            if display_size:
+                # Skalierungsfaktor berechnen, falls Waydroid-Fenster größer ist
+                waydroid_window = focus_service.get_window_info()
+                if waydroid_window.width > 0 and waydroid_window.height > 0:
+                    scale_x = waydroid_window.width / display_size[0]
+                    scale_y = waydroid_window.height / display_size[1]
+                    if abs(scale_x - 1.0) > 0.01 or abs(scale_y - 1.0) > 0.01:
+                        touch_service.calibration_scale_x = scale_x
+                        touch_service.calibration_scale_y = scale_y
 
     vision_service = OpenCVVisionService()
     vision_engine = VisionEngine(vision_service, window_tracker)
     mapping_engine = MappingEngine(input_service, touch_service, window_tracker, config)
 
-    # Mouse-Position Provider f\u00fcr Koordinaten-Picker setzen
+    # Mouse-Position Provider für Koordinaten-Picker setzen
     mapping_engine.set_mouse_pos_provider(lambda: focus_service.get_cursor_pos())
 
     window = MainWindow(focus_tracker, window_tracker, vision_engine, config, mapping_engine, config_loader)

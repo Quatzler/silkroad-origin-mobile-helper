@@ -17,7 +17,10 @@ Verwendung als Klasse:
 import sys
 import os
 import time
+import re
+import numpy as np
 from threading import Thread, Event
+from typing import Optional, Tuple
 
 # Add src directory to python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
@@ -33,11 +36,13 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLineEdit,
     QGroupBox,
+    QMessageBox,
 )
 from PySide6.QtCore import Qt, QTimer, Signal, QObject
-from PySide6.QtGui import QKeyEvent
+from PySide6.QtGui import QKeyEvent, QPixmap, QImage
 from silkroad_companion.infrastructure.kwin_focus_service import KWinFocusService
 from silkroad_companion.infrastructure.touch_input_service import EvdevTouchService
+from silkroad_companion.infrastructure.adb_service import ADBService
 from silkroad_companion.domain.models import WindowInfo
 
 
@@ -85,9 +90,18 @@ class WindowDebugger(QMainWindow):
         
         self.focus_service = KWinFocusService()
         self.touch_service = EvdevTouchService()
+        self.adb_service = ADBService()
         
         # Picker-Modus Status
         self._picker_mode = False
+        
+        # Kalibrierungsdaten
+        self._calibration_offset_x = 0
+        self._calibration_offset_y = 0
+        self._calibration_scale_x = 1.0
+        self._calibration_scale_y = 1.0
+        self._game_resolution = (0, 0)  # (Breite, Höhe) des Spiels
+        self._waydroid_window_size = (0, 0)  # (Breite, Höhe) des Waydroid-Fensters
         
         # Letzte Cursor-Position für Anzeige
         self._last_cursor_pos = (0, 0)
@@ -103,6 +117,17 @@ class WindowDebugger(QMainWindow):
         header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header_label.setStyleSheet("font-size: 16px; font-weight: bold;")
         layout.addWidget(header_label)
+        
+        # Kalibrierungs-Controls
+        calib_layout = QHBoxLayout()
+        self.calib_button = QPushButton("Automatische Kalibrierung (F7)")
+        self.calib_button.clicked.connect(self.auto_calibrate)
+        calib_layout.addWidget(self.calib_button)
+        
+        self.calib_info_label = QLabel("Kalibrierung: Nicht durchgeführt")
+        self.calib_info_label.setStyleSheet("font-family: monospace;")
+        calib_layout.addWidget(self.calib_info_label)
+        layout.addLayout(calib_layout)
         
         # Picker Mode Control
         picker_layout = QHBoxLayout()
@@ -155,10 +180,16 @@ class WindowDebugger(QMainWindow):
         self.picker_timer = QTimer(self)
         self.picker_timer.timeout.connect(self.update_cursor_info)
         
+        # ADB Info Timer (alle 5 Sekunden)
+        self.adb_timer = QTimer(self)
+        self.adb_timer.timeout.connect(self.update_adb_info)
+        self.adb_timer.start(5000)
+        
         # Erstes Update
         self.update_info()
+        self.update_adb_info()
         
-        # Enable key press events für F8
+        # Enable key press events für F8 und F7
         self.setFocusPolicy(Qt.StrongFocus)
 
     def setup_screen_size(self):
@@ -181,11 +212,188 @@ class WindowDebugger(QMainWindow):
                 )
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        """Handle key press events für F8"""
+        """Handle key press events für F8 und F7"""
         if event.key() == Qt.Key_F8:
             self.toggle_picker_mode()
+        elif event.key() == Qt.Key_F7:
+            self.auto_calibrate()
         else:
             super().keyPressEvent(event)
+
+    def update_adb_info(self):
+        """Aktualisiert die ADB-Informationen (Spiel-Auflösung, Aktivität)"""
+        if not self.adb_service.is_waydroid_running():
+            return
+        
+        # Aktuelle Aktivität abfragen
+        activity = self.adb_service.get_current_activity()
+        if activity:
+            self._current_activity = activity
+        
+        # Display-Größe abfragen
+        display_size = self.adb_service.get_display_size()
+        if display_size:
+            self._game_resolution = display_size
+            self.touch_service.calibration_scale_x = 1.0
+            self.touch_service.calibration_scale_y = 1.0
+            
+            # Prüfe, ob die Display-Größe von der Waydroid-Fenstergröße abweicht
+            window_info = self.focus_service.get_window_info()
+            if window_info.width > 0 and window_info.height > 0:
+                self._waydroid_window_size = (window_info.width, window_info.height)
+                
+                # Skalierungsfaktor berechnen
+                scale_x = window_info.width / display_size[0]
+                scale_y = window_info.height / display_size[1]
+                
+                # Wenn die Skalierung nicht 1.0 ist, anpassen
+                if abs(scale_x - 1.0) > 0.01 or abs(scale_y - 1.0) > 0.01:
+                    self.touch_service.calibration_scale_x = scale_x
+                    self.touch_service.calibration_scale_y = scale_y
+                    self.calib_info_label.setText(
+                        f"Kalibrierung: Auto (Scale: {scale_x:.2f}x{scale_y:.2f}, "
+                        f"Spiel: {display_size[0]}x{display_size[1]}, "
+                        f"Waydroid: {window_info.width}x{window_info.height})"
+                    )
+
+    def auto_calibrate(self):
+        """
+        Führt eine automatische Kalibrierung durch:
+        1. ADB: Spiel-Auflösung abfragen
+        2. OpenCV: Spiel-Fenster im Waydroid-Fenster erkennen
+        3. Offset und Skalierung berechnen
+        """
+        self.info_display.append("\n" + "=" * 60)
+        self.info_display.append("AUTOMATISCHE KALIBRIERUNG GESTARTET (F7)")
+        self.info_display.append("=" * 60)
+        
+        # 1. ADB: Spiel-Auflösung abfragen
+        if not self.adb_service.is_waydroid_running():
+            self.info_display.append("Fehler: Waydroid läuft nicht oder ADB ist nicht verfügbar.")
+            self.info_display.append("=" * 60)
+            return
+        
+        display_size = self.adb_service.get_display_size()
+        if not display_size:
+            self.info_display.append("Fehler: Konnte Spiel-Auflösung nicht abfragen.")
+            self.info_display.append("=" * 60)
+            return
+        
+        self._game_resolution = display_size
+        self.info_display.append(f"Spiel-Auflösung (ADB): {display_size[0]}x{display_size[1]}")
+        
+        # 2. Waydroid-Fenstergröße abfragen
+        window_info = self.focus_service.get_window_info()
+        if not window_info or window_info.width <= 0:
+            self.info_display.append("Fehler: Kein Waydroid-Fenster gefunden.")
+            self.info_display.append("=" * 60)
+            return
+        
+        self._waydroid_window_size = (window_info.width, window_info.height)
+        self.info_display.append(f"Waydroid-Fenstergröße: {window_info.width}x{window_info.height}")
+        
+        # 3. Skalierungsfaktor berechnen
+        scale_x = window_info.width / display_size[0]
+        scale_y = window_info.height / display_size[1]
+        self.info_display.append(f"Skalierungsfaktor: {scale_x:.2f}x{scale_y:.2f}")
+        
+        # 4. OpenCV: Spiel-Fenster-Rahmen erkennen (falls Skalierung != 1.0)
+        if abs(scale_x - 1.0) > 0.01 or abs(scale_y - 1.0) > 0.01:
+            self.info_display.append("Skalierung != 1.0 → Suche nach Spiel-Fenster-Rahmen...")
+            game_window_offset = self._find_game_window_with_opencv(window_info)
+            if game_window_offset:
+                offset_x, offset_y, game_w, game_h = game_window_offset
+                self.info_display.append(
+                    f"Spiel-Fenster im Waydroid-Fenster: Offset=({offset_x}, {offset_y}), "
+                    f"Größe={game_w}x{game_h}"
+                )
+                # Kalibrierung anpassen
+                self._calibration_offset_x = offset_x / window_info.width
+                self._calibration_offset_y = offset_y / window_info.height
+                self.touch_service.calibration_offset_x = offset_x
+                self.touch_service.calibration_offset_y = offset_y
+            else:
+                self.info_display.append("Warnung: Konnte Spiel-Fenster-Rahmen nicht erkennen.")
+        else:
+            self.info_display.append("Skalierung = 1.0 → Keine Rahmen-Erkennung nötig.")
+        
+        # 5. Kalibrierung anwenden
+        self.touch_service.calibration_scale_x = scale_x
+        self.touch_service.calibration_scale_y = scale_y
+        
+        self.calib_info_label.setText(
+            f"Kalibrierung: Auto (Scale: {scale_x:.2f}x{scale_y:.2f}, "
+            f"Offset: {self._calibration_offset_x:.3f}, {self._calibration_offset_y:.3f})"
+        )
+        
+        self.info_display.append("Kalibrierung abgeschlossen!")
+        self.info_display.append("=" * 60)
+
+    def _find_game_window_with_opencv(self, window_info: WindowInfo) -> Optional[Tuple[int, int, int, int]]:
+        """
+        Versucht, das Spiel-Fenster innerhalb des Waydroid-Fensters mit OpenCV zu erkennen.
+        
+        Returns:
+            (offset_x, offset_y, width, height) oder None, falls nicht gefunden.
+        """
+        try:
+            import cv2
+            from PySide6.QtGui import QScreen, QPixmap
+            
+            # Screenshot des Waydroid-Fensters machen
+            screen = QApplication.primaryScreen()
+            if not screen:
+                return None
+            
+            # Fenster-Bereich als Screenshot
+            screenshot = screen.grabWindow(
+                0,  # 0 = gesamten Bildschirm (wir schneiden später zu)
+                window_info.x,
+                window_info.y,
+                window_info.width,
+                window_info.height
+            )
+            
+            if not screenshot.isNull():
+                # In OpenCV-Format konvertieren
+                img = screenshot.toImage()
+                img = img.convertToFormat(QImage.Format.Format_RGB888)
+                width, height = img.width(), img.height()
+                ptr = img.bits()
+                ptr.setsize(img.byteCount())
+                arr = np.frombuffer(ptr, np.uint8).reshape((height, width, 3))
+                frame = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+                
+                # Bildverarbeitung: Suche nach schwarzen Rändern (typisch für Waydroid)
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                _, thresh = cv2.threshold(gray, 30, 255, cv2.THRESH_BINARY_INV)
+                
+                # Konturen finden
+                contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                
+                # Größtes Rechteck suchen (wahrscheinlich das Spiel-Fenster)
+                for cnt in contours:
+                    x, y, w, h = cv2.boundingRect(cnt)
+                    # Filtere zu kleine Konturen raus
+                    if w > 100 and h > 100:
+                        # Prüfe, ob es sich um einen Rahmen handelt (dünnes Rechteck)
+                        aspect_ratio = w / h
+                        if 0.8 < aspect_ratio < 1.2:  # Quadratisch/Rechteckig
+                            # Prüfe, ob der Rahmen am Rand des Bildes ist
+                            if (x < 10 or y < 10 or 
+                                (x + w) > width - 10 or 
+                                (y + h) > height - 10):
+                                # Das ist wahrscheinlich der äußere Rahmen → überspringen
+                                continue
+                            # Das ist wahrscheinlich das Spiel-Fenster
+                            return (x, y, w, h)
+                
+                # Falls kein Rahmen gefunden wurde: Nimm das gesamte Fenster
+                return (0, 0, window_info.width, window_info.height)
+        except Exception as e:
+            self.info_display.append(f"Fehler bei OpenCV-Erkennung: {e}")
+        
+        return None
 
     def toggle_picker_mode(self) -> None:
         """Aktiviert/Deaktiviert den Picker-Modus"""
@@ -219,13 +427,15 @@ class WindowDebugger(QMainWindow):
         rel_x = (abs_x - window_info.x) / window_info.width
         rel_y = (abs_y - window_info.y) / window_info.height
         
+        # Kalibrierung anwenden (Offset und Skalierung)
+        calibrated_rel_x = (rel_x - self._calibration_offset_x) / self._calibration_scale_x
+        calibrated_rel_y = (rel_y - self._calibration_offset_y) / self._calibration_scale_y
+        
         # Prüfung ob Cursor im Fenster liegt
         in_window = 0 <= rel_x <= 1 and 0 <= rel_y <= 1
         status = "IM FENSTER" if in_window else "AUSSERHALB"
         
         # uinput-Koordinaten berechnen (absolut auf dem Bildschirm)
-        # WICHTIG: Die Touch-Koordinaten müssen relativ zum gesamten Bildschirm sein,
-        # nicht zum Fenster! Denn uinput simuliert einen Touchscreen über den gesamten Bildschirm.
         calibrated_x = (abs_x * self.touch_service.calibration_scale_x) + self.touch_service.calibration_offset_x
         calibrated_y = (abs_y * self.touch_service.calibration_scale_y) + self.touch_service.calibration_offset_y
         
@@ -235,7 +445,8 @@ class WindowDebugger(QMainWindow):
         # Ausgabe aktualisieren
         info_text = (
             f"Absolut: ({abs_x}, {abs_y}) | "
-            f"Relativ: ({rel_x:.4f}, {rel_y:.4f}) | "
+            f"Relativ (Waydroid): ({rel_x:.4f}, {rel_y:.4f}) | "
+            f"Relativ (Spiel): ({calibrated_rel_x:.4f}, {calibrated_rel_y:.4f}) | "
             f"uinput: ({tx}, {ty}) | "
             f"Status: {status}"
         )
@@ -260,6 +471,10 @@ class WindowDebugger(QMainWindow):
         rel_x = (abs_x - window_info.x) / window_info.width
         rel_y = (abs_y - window_info.y) / window_info.height
         
+        # Kalibrierung anwenden
+        calibrated_rel_x = (rel_x - self._calibration_offset_x) / self._calibration_scale_x
+        calibrated_rel_y = (rel_y - self._calibration_offset_y) / self._calibration_scale_y
+        
         # Prüfung ob Cursor im Fenster liegt
         in_window = 0 <= rel_x <= 1 and 0 <= rel_y <= 1
         status = "IM FENSTER" if in_window else "AUSSERHALB"
@@ -277,12 +492,12 @@ class WindowDebugger(QMainWindow):
         self.info_display.append("=" * 60)
         self.info_display.append(f"Absolute Position (Bildschirm): ({abs_x}, {abs_y})")
         self.info_display.append(f"Fenster-Position: ({window_info.x}, {window_info.y}), Größe: {window_info.width}x{window_info.height}")
-        self.info_display.append(f"Relative Koordinaten (zum Fenster): x: {rel_x:.4f}, y: {rel_y:.4f} ({status})")
+        self.info_display.append(f"Relative Koordinaten (Waydroid): x: {rel_x:.4f}, y: {rel_y:.4f} ({status})")
+        self.info_display.append(f"Relative Koordinaten (Spiel): x: {calibrated_rel_x:.4f}, y: {calibrated_rel_y:.4f}")
         self.info_display.append(f"uinput Koordinaten: ({tx}, {ty})")
         
-        # WICHTIG: Für Touch-Klicks müssen wir die relativen Koordinaten zum Fenster verwenden!
-        # Denn click_relative() erwartet relative Fensterkoordinaten.
-        self.info_display.append(f"\n-> Für Touch-Klicks diese relativen Koordinaten verwenden: ({rel_x:.4f}, {rel_y:.4f})")
+        # WICHTIG: Für Touch-Klicks müssen wir die kalibrierten relativen Koordinaten verwenden!
+        self.info_display.append(f"\n-> Für Touch-Klicks diese relativen Koordinaten verwenden: ({calibrated_rel_x:.4f}, {calibrated_rel_y:.4f})")
         self.info_display.append("=" * 60)
         
         if not in_window:
@@ -302,7 +517,19 @@ class WindowDebugger(QMainWindow):
         info_text += f"Fenster-Titel: {self.focus_service.get_active_window_title() or 'Unbekannt'}\n"
         info_text += f"Cursor Position: {cursor_pos}\n"
         info_text += f"Picker Modus: {'AKTIV' if self._picker_mode else 'INAKTIV'} (F8 zum Umschalten)\n"
-        info_text += f"Letzte Capture: {self._last_cursor_pos} (F9)\n\n"
+        info_text += f"Letzte Capture: {self._last_cursor_pos} (F9)\n"
+        
+        # ADB-Info
+        if self.adb_service.is_waydroid_running():
+            activity = getattr(self, '_current_activity', None)
+            if activity:
+                info_text += f"Aktuelle Aktivität (ADB): {activity}\n"
+            if self._game_resolution != (0, 0):
+                info_text += f"Spiel-Auflösung (ADB): {self._game_resolution[0]}x{self._game_resolution[1]}\n"
+        else:
+            info_text += "ADB: Nicht verfügbar (Waydroid läuft nicht oder ADB nicht verbunden)\n"
+        
+        info_text += "\n"
         
         if window_info.width > 0:
             info_text += "Fenster-Geometrie:\n"
@@ -370,13 +597,17 @@ class WindowDebugger(QMainWindow):
             self.info_display.append("\nKein Fenster gefunden - ist Waydroid fokussiert?")
             return
         
-        self.info_display.append(f"\nTeste Touch bei ({x}, {y})...")
+        # Kalibrierung anwenden
+        calibrated_x = (x * self._calibration_scale_x) + self._calibration_offset_x
+        calibrated_y = (y * self._calibration_scale_y) + self._calibration_offset_y
+        
+        self.info_display.append(f"\nTeste Touch bei ({x}, {y}) mit Kalibrierung ({calibrated_x:.4f}, {calibrated_y:.4f})...")
         QApplication.processEvents()
         
         # Touch ausführen
-        self.touch_service.click_relative(x, y, window_info, slot=0)
+        self.touch_service.click_relative(calibrated_x, calibrated_y, window_info, slot=0)
         
-        self.info_display.append(f"Touch bei ({x}, {y}) ausgeführt - beobachte Position im Spiel")
+        self.info_display.append(f"Touch bei ({calibrated_x:.4f}, {calibrated_y:.4f}) ausgeführt - beobachte Position im Spiel")
 
     def get_window_info(self) -> WindowInfo:
         """Gibt die aktuelle Fenster-Info zurück"""
