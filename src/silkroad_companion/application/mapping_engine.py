@@ -6,6 +6,7 @@ from silkroad_companion.domain.input_service import InputService, TouchService
 
 if TYPE_CHECKING:
     from silkroad_companion.domain.config import KeyBind
+    from silkroad_companion.domain.models import WindowInfo
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +41,22 @@ class MappingEngine:
         status = "AKTIVIERT" if self._picker_mode else "DEAKTIVIERT"
         print(f"\n--- KOORDINATEN-PICKER {status} ---", flush=True)
         if self._picker_mode:
-            print("Klicke jetzt mit der Maus im Silkroad-Fenster, um die relativen Koordinaten zu sehen.", flush=True)
+            print("Klicke mit der Maus im Silkroad-Fenster oder drücke 'F9', um die aktuelle Cursor-Position zu capturen.", flush=True)
         print("-----------------------------------\n", flush=True)
+
+    def capture_cursor_position(self) -> None:
+        """Captures the current cursor position and displays relative and uinput coordinates."""
+        if not self._mouse_pos_provider:
+            print("PICKER: Kein Maus-Positions-Provider verfügbar.", flush=True)
+            return
+
+        window_info = self.window_tracker.window_service.get_window_info()
+        if not window_info or window_info.width <= 0:
+            print("PICKER: Kein Fenster gefunden zum Berechnen der Koordinaten.", flush=True)
+            return
+
+        abs_x, abs_y = self._mouse_pos_provider()
+        self._print_coordinates(abs_x, abs_y, window_info)
 
     def handle_mouse_click(self) -> None:
         if not self._picker_mode or not self._mouse_pos_provider:
@@ -53,18 +68,49 @@ class MappingEngine:
             return
 
         abs_x, abs_y = self._mouse_pos_provider()
+        self._print_coordinates(abs_x, abs_y, window_info)
 
+    def _print_coordinates(self, abs_x: int, abs_y: int, window_info: "WindowInfo") -> None:
+        """Prints relative and uinput coordinates for the given absolute position."""
         # Relative Koordinaten berechnen
         rel_x = (abs_x - window_info.x) / window_info.width
         rel_y = (abs_y - window_info.y) / window_info.height
 
-        # Pr7fung ob Klick im Fenster liegt
+        # Prüfung ob Klick im Fenster liegt
         in_window = 0 <= rel_x <= 1 and 0 <= rel_y <= 1
         status = "IM FENSTER" if in_window else "AUSSERHALB"
 
-        print(f"PICKER: Klick bei Pixel ({abs_x}, {abs_y}) -> RELATIV: x: {rel_x:.4f}, y: {rel_y:.4f} ({status})", flush=True)
+        # uinput-Koordinaten berechnen (falls TouchService verfügbar)
+        uinput_x, uinput_y = 0, 0
+        if hasattr(self.touch_service, '_get_abs_coords'):
+            try:
+                uinput_x, uinput_y = self.touch_service._get_abs_coords(rel_x, rel_y, window_info)
+            except Exception:
+                pass
+
+        print("=" * 60, flush=True)
+        print("WINDOW DEBUG INFO", flush=True)
+        print("=" * 60, flush=True)
+        print(f"Cursor Position: ({abs_x}, {abs_y})", flush=True)
+        print(f"\nFenster-Geometrie:", flush=True)
+        print(f"  Position: ({window_info.x}, {window_info.y})", flush=True)
+        print(f"  Größe: {window_info.width}x{window_info.height}", flush=True)
+        print(f"  Fokussiert: {window_info.focused}", flush=True)
+        print(f"\nRelative Koordinaten: x: {rel_x:.4f}, y: {rel_y:.4f} ({status})", flush=True)
+        
+        if hasattr(self.touch_service, 'screen_width'):
+            print(f"\nTouch-Service Konfiguration:", flush=True)
+            print(f"  Screen Size: {self.touch_service.screen_width}x{self.touch_service.screen_height}", flush=True)
+            print(f"  Offset: ({self.touch_service.offset_x}, {self.touch_service.offset_y})", flush=True)
+        
+        if uinput_x > 0 or uinput_y > 0:
+            print(f"\nTouch-Koordinaten (uinput 0-32767):", flush=True)
+            print(f"  Aktuelle Position -> uinput ({uinput_x}, {uinput_y})", flush=True)
+        
+        print("=" * 60, flush=True)
+
         if not in_window:
-            print(f"  Fenster-Geometrie: {window_info.width}x{window_info.height} @ ({window_info.x}, {window_info.y})", flush=True)
+            print(f"Hinweis: Cursor liegt außerhalb des Fensters!", flush=True)
 
     def set_enabled(self, enabled: bool) -> None:
         if self._is_enabled == enabled:
@@ -177,6 +223,10 @@ class MappingEngine:
         # Phase 6: Test-Klick bei F8 (oder Picker-Modus umschalten)
         if action == "test_click" or action == "toggle_picker":
             self.toggle_picker_mode()
+
+        # Neue Aktion: Cursor-Position capturen
+        elif action == "capture_cursor":
+            self.capture_cursor_position()
 
         # Phase 8: Zurück-Button Klick (oben links) im Inventar oder Menüs
         elif action == "back_button_click":
