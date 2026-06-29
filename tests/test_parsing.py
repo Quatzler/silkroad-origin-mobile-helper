@@ -31,3 +31,11 @@ def test_parsing_robustness(mock_popen, mock_dbus_iface, mock_bus):
     # Test Focus Title mit Präfix
     service._parse_line("js: SRO_FOCUS_TITLE:Silkroad Origin Mobile")
     assert service._current_window_title == "Silkroad Origin Mobile"
+
+    # Test Cursor
+    service._parse_line("js: SRO_CURSOR:500,600")
+    assert service.get_cursor_pos() == (500, 600)
+
+    # Test Cursor mit Floats
+    service._parse_line("SRO_CURSOR:500.5,600.9")
+    assert service.get_cursor_pos() == (500, 600)

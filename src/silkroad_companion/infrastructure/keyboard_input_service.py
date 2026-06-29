@@ -9,10 +9,11 @@ from silkroad_companion.domain.input_service import InputService
 
 logger = logging.getLogger(__name__)
 
-class KeyboardInputService(InputService):
+class EvdevInputService(InputService):
     def __init__(self) -> None:
         self._down_callbacks: dict[int, Callable[[], None]] = {}
         self._up_callbacks: dict[int, Callable[[], None]] = {}
+        self._mouse_callbacks: list[Callable[[], None]] = []
         self._devices: list[evdev.InputDevice] = []
         self._stop_event = threading.Event()
         self._threads: list[threading.Thread] = []
@@ -48,14 +49,14 @@ class KeyboardInputService(InputService):
         if self._threads:
             self.stop_listener()
 
-        self._devices = self._find_keyboard_devices()
+        self._devices = self._find_input_devices()
         if not self._devices:
-            logger.error("Keine Tastatur-Geräte gefunden oder keine Berechtigungen für /dev/input/")
-            print("Fehler: Keine Tastatur gefunden oder keine Berechtigungen für /dev/input/.", flush=True)
+            logger.error("Keine Eingabegeräte gefunden oder keine Berechtigungen für /dev/input/")
+            print("Fehler: Keine Tastatur oder Maus gefunden oder keine Berechtigungen für /dev/input/.", flush=True)
             print("Hast du die udev-Regeln erstellt und dich der Gruppe 'input' hinzugefügt?", flush=True)
             return
 
-        print(f"Starte Listener für {len(self._devices)} Tastaturen...", flush=True)
+        print(f"Starte Listener für {len(self._devices)} Eingabegeräte...", flush=True)
         self._stop_event.clear()
         for device in self._devices:
             print(f"  - Überwache: {device.name} ({device.path})", flush=True)
@@ -70,7 +71,7 @@ class KeyboardInputService(InputService):
 
         logger.info(f"Hintergrund-Listener für {len(self._devices)} Geräte gestartet.")
 
-    def _find_keyboard_devices(self) -> list[evdev.InputDevice]:
+    def _find_input_devices(self) -> list[evdev.InputDevice]:
         devices = []
         try:
             device_paths = evdev.list_devices()
@@ -79,10 +80,17 @@ class KeyboardInputService(InputService):
                 try:
                     dev = evdev.InputDevice(path)
                     capabilities = dev.capabilities()
-                    # Prüfen ob das Gerät Tasten hat (KEY_A ist ein guter Indikator für eine Tastatur)
+                    # Prüfen ob das Gerät Tasten hat
                     if ecodes.EV_KEY in capabilities:
-                        if ecodes.KEY_A in capabilities[ecodes.EV_KEY]:
-                            logger.info(f"Tastatur erkannt: {dev.name} ({dev.path})")
+                        # Tastatur: KEY_A vorhanden
+                        is_keyboard = ecodes.KEY_A in capabilities[ecodes.EV_KEY]
+                        # Maus: BTN_LEFT vorhanden
+                        is_mouse = ecodes.BTN_LEFT in capabilities[ecodes.EV_KEY]
+
+                        if is_keyboard or is_mouse:
+                            type_str = "Tastatur" if is_keyboard else "Maus"
+                            if is_keyboard and is_mouse: type_str = "Kombigerät"
+                            logger.info(f"{type_str} erkannt: {dev.name} ({dev.path})")
                             devices.append(dev)
                 except (PermissionError, OSError) as e:
                     logger.warning(f"Zugriff auf {path} verweigert: {e}")
@@ -103,6 +111,12 @@ class KeyboardInputService(InputService):
                         if event.code in self._down_callbacks:
                             print(f"Evdev: Hotkey gedrückt! Code={event.code} ({device.name})", flush=True)
                             self._down_callbacks[event.code]()
+
+                        # Mausklick prüfen
+                        if event.code == ecodes.BTN_LEFT:
+                            print(f"Evdev: Linker Mausklick erkannt! ({device.name})", flush=True)
+                            for cb in self._mouse_callbacks:
+                                cb()
                     elif event.value == 0: # Up
                         if event.code in self._up_callbacks:
                             print(f"Evdev: Hotkey losgelassen! Code={event.code} ({device.name})", flush=True)
@@ -133,4 +147,9 @@ class KeyboardInputService(InputService):
         self.stop_listener()
         self._down_callbacks.clear()
         self._up_callbacks.clear()
+        self._mouse_callbacks.clear()
         logger.info("Alle Hotkeys entfernt.")
+
+    def bind_mouse_click(self, callback: Callable[[], None]) -> None:
+        self._mouse_callbacks.append(callback)
+        logger.info("Mausklick-Callback registriert.")

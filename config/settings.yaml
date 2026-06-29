@@ -13,8 +13,8 @@ states:
         description: "Test Klick Phase 6"
       "1":
         action: "skill_1"
-        x: 0.65
-        y: 0.8
+        x: -0.0570
+        y: 1.2806
         description: "Primärer Skill (Config Coord)"
       "2":
         action: "skill_2"

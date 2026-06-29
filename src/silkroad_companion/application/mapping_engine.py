@@ -1,8 +1,8 @@
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, Callable
 from silkroad_companion.application.window_tracker import WindowTracker
 from silkroad_companion.domain.config import AppConfig
-from silkroad_companion.domain.input_service import InputService, MouseService
+from silkroad_companion.domain.input_service import InputService, TouchService
 
 if TYPE_CHECKING:
     from silkroad_companion.domain.config import KeyBind
@@ -13,17 +13,53 @@ class MappingEngine:
     def __init__(
         self,
         input_service: InputService,
-        mouse_service: MouseService,
+        touch_service: TouchService,
         window_tracker: WindowTracker,
         config: AppConfig,
     ) -> None:
         self.input_service = input_service
-        self.mouse_service = mouse_service
+        self.touch_service = touch_service
         self.window_tracker = window_tracker
         self.config = config
         self._is_enabled = False
         self._current_state = "game"  # Standard-State
         self._active_directions: set[str] = set()
+        self._picker_mode = False
+        self._mouse_pos_provider: Optional[Callable[[], tuple[int, int]]] = None
+
+    def set_mouse_pos_provider(self, provider: Callable[[], tuple[int, int]]) -> None:
+        self._mouse_pos_provider = provider
+
+    def toggle_picker_mode(self) -> None:
+        self._picker_mode = not self._picker_mode
+        status = "AKTIVIERT" if self._picker_mode else "DEAKTIVIERT"
+        print(f"\n--- KOORDINATEN-PICKER {status} ---", flush=True)
+        if self._picker_mode:
+            print("Klicke jetzt mit der Maus im Silkroad-Fenster, um die relativen Koordinaten zu sehen.", flush=True)
+        print("-----------------------------------\n", flush=True)
+
+    def handle_mouse_click(self) -> None:
+        if not self._picker_mode or not self._mouse_pos_provider:
+            return
+
+        window_info = self.window_tracker.window_service.get_window_info()
+        if not window_info or window_info.width <= 0:
+            print("PICKER: Kein Fenster gefunden zum Berechnen der Koordinaten.", flush=True)
+            return
+
+        abs_x, abs_y = self._mouse_pos_provider()
+
+        # Relative Koordinaten berechnen
+        rel_x = (abs_x - window_info.x) / window_info.width
+        rel_y = (abs_y - window_info.y) / window_info.height
+
+        # Prüfung ob Klick im Fenster liegt
+        in_window = 0 <= rel_x <= 1 and 0 <= rel_y <= 1
+        status = "IM FENSTER" if in_window else "AUSSERHALB"
+
+        print(f"PICKER: Klick bei Pixel ({abs_x}, {abs_y}) -> RELATIV: x: {rel_x:.4f}, y: {rel_y:.4f} ({status})", flush=True)
+        if not in_window:
+            print(f"  Fenster-Geometrie: {window_info.width}x{window_info.height} @ ({window_info.x}, {window_info.y})", flush=True)
 
     def set_enabled(self, enabled: bool) -> None:
         if self._is_enabled == enabled:
@@ -36,6 +72,7 @@ class MappingEngine:
         else:
             self.input_service.unbind_all()
             self._active_directions.clear()
+            self.touch_service.reset()
             logger.info("Mapping Engine deaktiviert.")
 
     def set_state(self, state_name: str) -> None:
@@ -50,6 +87,10 @@ class MappingEngine:
             self._apply_mappings()
 
     def _apply_mappings(self) -> None:
+        # Mausklick für Koordinaten-Picker IMMER binden, wenn Engine aktiv ist
+        # (auch wenn für den aktuellen State kein Mapping existiert)
+        self.input_service.bind_mouse_click(self._create_mouse_callback())
+
         state_cfg = self.config.states.get(self._current_state)
         if not state_cfg:
             logger.warning(f"Keine Konfiguration für State '{self._current_state}' gefunden.")
@@ -71,15 +112,22 @@ class MappingEngine:
         def callback() -> None:
             # Wir nutzen einen Timer, um die Aktion im GUI-Thread auszuführen,
             # da evdev Callbacks in einem eigenen Thread laufen.
-            # Wir übergeben QCoreApplication.instance() als Context, um sicherzustellen,
-            # dass der Callback im Haupt-Thread (GUI-Thread) ausgeführt wird.
             from PySide6.QtCore import QCoreApplication, QTimer
             app = QCoreApplication.instance()
             if app:
                 QTimer.singleShot(0, app, lambda: self._execute_action(key, bind, is_down))
             else:
-                # Fallback für Tests ohne laufende App
                 self._execute_action(key, bind, is_down)
+        return callback
+
+    def _create_mouse_callback(self):
+        def callback() -> None:
+            from PySide6.QtCore import QCoreApplication, QTimer
+            app = QCoreApplication.instance()
+            if app:
+                QTimer.singleShot(0, app, self.handle_mouse_click)
+            else:
+                self.handle_mouse_click()
         return callback
 
     def _execute_action(self, key: str, bind: "KeyBind", is_down: bool = True) -> None:
@@ -108,7 +156,7 @@ class MappingEngine:
         if bind.x is not None and bind.y is not None:
             if is_down:
                 print(f"Config-Klick bei ({bind.x}, {bind.y})", flush=True)
-                self.mouse_service.click_relative(bind.x, bind.y, window_info)
+                self.touch_service.click_relative(bind.x, bind.y, window_info, slot=0)
             return
 
         # Phase 10: Joystick Simulation (WASD)
@@ -120,11 +168,12 @@ class MappingEngine:
         if not is_down:
             return
 
-        # Phase 6: Test-Klick bei F8
-        if action == "test_click":
-            # Klick in die Mitte des Fensters
-            print(f"Relativer Klick bei (0.5, 0.5) -> Absolut ({window_info.x + window_info.width//2}, {window_info.y + window_info.height//2})", flush=True)
-            self.mouse_service.click_relative(0.5, 0.5, window_info)
+        # Phase 6: Test-Klick bei F8 (oder Picker-Modus umschalten)
+        if action == "test_click" or action == "toggle_picker":
+            self.toggle_picker_mode()
+            # Optional: Trotzdem Klick ausführen für Feedback?
+            # Der User wollte es als Alternative, also machen wir erst mal nur Picker.
+            # self.touch_service.click_relative(0.5, 0.5, window_info, slot=0)
 
         # Phase 8: Zurück-Button Klick (oben links) im Inventar oder Menüs
         elif action == "back_button_click":
@@ -132,7 +181,7 @@ class MappingEngine:
             # Sagen wir 5% vom Rand
             rel_x, rel_y = 0.05, 0.05
             print(f"Zurück-Klick bei ({rel_x}, {rel_y}) -> Absolut ({int(window_info.x + window_info.width*rel_x)}, {int(window_info.y + window_info.height*rel_y)})", flush=True)
-            self.mouse_service.click_relative(rel_x, rel_y, window_info)
+            self.touch_service.click_relative(rel_x, rel_y, window_info, slot=0)
 
         # Phase 9: Skill Mapping 1-9
         elif action.startswith("skill_"):
@@ -147,7 +196,7 @@ class MappingEngine:
                 rel_x = base_x + (skill_num - 1) * spacing
                 rel_y = 0.9
                 print(f"Skill {skill_num} Klick bei ({rel_x}, {rel_y})", flush=True)
-                self.mouse_service.click_relative(rel_x, rel_y, window_info)
+                self.touch_service.click_relative(rel_x, rel_y, window_info, slot=0)
             except (ValueError, IndexError):
                 logger.error(f"Ungültige Skill-Aktion: {action}")
 
@@ -173,7 +222,7 @@ class MappingEngine:
         if not self._active_directions:
             # Kein Key mehr gedrückt -> Release
             print("Joystick Stop", flush=True)
-            self.mouse_service.release_relative(center_x, center_y, window_info)
+            self.touch_service.release_relative(slot=1)
             return
 
         # Ziel berechnen basierend auf allen aktiven Richtungen
@@ -200,11 +249,11 @@ class MappingEngine:
         if is_down and len(self._active_directions) == 1:
             # Erster Tastendruck -> Swipe vom Zentrum starten
             print(f"Joystick Start Swipe: ({center_x}, {center_y}) -> ({target_x}, {target_y})", flush=True)
-            self.mouse_service.press_relative(center_x, center_y, window_info)
+            self.touch_service.press_relative(center_x, center_y, window_info, slot=1)
             import time
             time.sleep(0.02)
-            self.mouse_service.move_relative(target_x, target_y, window_info)
+            self.touch_service.move_relative(target_x, target_y, window_info, slot=1)
         else:
             # Update Position
             print(f"Joystick Update: ({target_x}, {target_y})", flush=True)
-            self.mouse_service.move_relative(target_x, target_y, window_info)
+            self.touch_service.move_relative(target_x, target_y, window_info, slot=1)

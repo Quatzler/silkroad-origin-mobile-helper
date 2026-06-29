@@ -3,18 +3,18 @@ from PySide6.QtCore import QCoreApplication
 from silkroad_companion.application.mapping_engine import MappingEngine
 from silkroad_companion.application.window_tracker import WindowTracker
 from silkroad_companion.domain.config import AppConfig, StateConfig, KeyBind
-from silkroad_companion.domain.input_service import InputService, MouseService
+from silkroad_companion.domain.input_service import InputService, TouchService
 
 def test_mapping_engine_enabling():
     mock_input = MagicMock(spec=InputService)
-    mock_mouse = MagicMock(spec=MouseService)
+    mock_touch = MagicMock(spec=TouchService)
     mock_window = MagicMock(spec=WindowTracker)
     config = AppConfig(states={
         "game": StateConfig(keybinds={
             "F8": KeyBind(action="test")
         })
     })
-    engine = MappingEngine(mock_input, mock_mouse, mock_window, config)
+    engine = MappingEngine(mock_input, mock_touch, mock_window, config)
 
     # Standardmäßig deaktiviert
     assert engine._is_enabled is False
@@ -31,13 +31,13 @@ def test_mapping_engine_enabling():
 
 def test_mapping_engine_state_switch():
     mock_input = MagicMock(spec=InputService)
-    mock_mouse = MagicMock(spec=MouseService)
+    mock_touch = MagicMock(spec=TouchService)
     mock_window = MagicMock(spec=WindowTracker)
     config = AppConfig(states={
         "game": StateConfig(keybinds={"F8": KeyBind(action="game_act")}),
         "menu": StateConfig(keybinds={"I": KeyBind(action="inv_act")})
     })
-    engine = MappingEngine(mock_input, mock_mouse, mock_window, config)
+    engine = MappingEngine(mock_input, mock_touch, mock_window, config)
     engine.set_enabled(True)
 
     mock_input.bind_key.reset_mock()
@@ -54,7 +54,7 @@ from silkroad_companion.domain.models import WindowInfo
 
 def test_mapping_engine_test_click():
     mock_input = MagicMock(spec=InputService)
-    mock_mouse = MagicMock(spec=MouseService)
+    mock_touch = MagicMock(spec=TouchService)
     mock_window_tracker = MagicMock(spec=WindowTracker)
     mock_window_service = MagicMock()
     mock_window_tracker.window_service = mock_window_service
@@ -69,7 +69,7 @@ def test_mapping_engine_test_click():
     info = WindowInfo(x=100, y=100, width=800, height=600, focused=True)
     mock_window_service.get_window_info.return_value = info
 
-    engine = MappingEngine(mock_input, mock_mouse, mock_window_tracker, config)
+    engine = MappingEngine(mock_input, mock_touch, mock_window_tracker, config)
     engine.set_enabled(True)
 
     # Callback holen
@@ -80,16 +80,12 @@ def test_mapping_engine_test_click():
     callback()
     QCoreApplication.processEvents()
 
-    # Früher mussten wir _execute_action manuell aufrufen,
-    # da QTimer im Test ohne Event-Loop nicht feuerte.
-    # Jetzt feuert der Fallback in MappingEngine automatisch.
-
-    # Prüfen ob MouseService gerufen wurde
-    mock_mouse.click_relative.assert_called_once_with(0.5, 0.5, info)
+    # Prüfen ob Picker-Modus aktiviert wurde (statt Klick)
+    assert engine._picker_mode is True
 
 def test_mapping_engine_back_button_click():
     mock_input = MagicMock(spec=InputService)
-    mock_mouse = MagicMock(spec=MouseService)
+    mock_touch = MagicMock(spec=TouchService)
     mock_window_tracker = MagicMock(spec=WindowTracker)
     mock_window_service = MagicMock()
     mock_window_tracker.window_service = mock_window_service
@@ -104,7 +100,7 @@ def test_mapping_engine_back_button_click():
     info = WindowInfo(x=100, y=100, width=1000, height=1000, focused=True)
     mock_window_service.get_window_info.return_value = info
 
-    engine = MappingEngine(mock_input, mock_mouse, mock_window_tracker, config)
+    engine = MappingEngine(mock_input, mock_touch, mock_window_tracker, config)
     engine.set_state("menu")
     engine.set_enabled(True)
 
@@ -116,12 +112,12 @@ def test_mapping_engine_back_button_click():
     callback()
     QCoreApplication.processEvents()
 
-    # Prüfen ob MouseService gerufen wurde (0.05, 0.05)
-    mock_mouse.click_relative.assert_called_once_with(0.05, 0.05, info)
+    # Prüfen ob TouchService gerufen wurde (0.05, 0.05)
+    mock_touch.click_relative.assert_called_once_with(0.05, 0.05, info, slot=0)
 
 def test_mapping_engine_custom_coordinates():
     mock_input = MagicMock(spec=InputService)
-    mock_mouse = MagicMock(spec=MouseService)
+    mock_touch = MagicMock(spec=TouchService)
     mock_window_tracker = MagicMock(spec=WindowTracker)
     mock_window_service = MagicMock()
     mock_window_tracker.window_service = mock_window_service
@@ -135,7 +131,7 @@ def test_mapping_engine_custom_coordinates():
     info = WindowInfo(x=0, y=0, width=1000, height=1000, focused=True)
     mock_window_service.get_window_info.return_value = info
 
-    engine = MappingEngine(mock_input, mock_mouse, mock_window_tracker, config)
+    engine = MappingEngine(mock_input, mock_touch, mock_window_tracker, config)
     engine.set_enabled(True)
 
     # Callback holen
@@ -146,11 +142,11 @@ def test_mapping_engine_custom_coordinates():
     QCoreApplication.processEvents()
 
     # Sollte die Koordinaten aus dem KeyBind nutzen
-    mock_mouse.click_relative.assert_called_once_with(0.1, 0.2, info)
+    mock_touch.click_relative.assert_called_once_with(0.1, 0.2, info, slot=0)
 
 def test_mapping_engine_joystick_wasd():
     mock_input = MagicMock(spec=InputService)
-    mock_mouse = MagicMock(spec=MouseService)
+    mock_touch = MagicMock(spec=TouchService)
     mock_window_tracker = MagicMock(spec=WindowTracker)
     mock_window_service = MagicMock()
     mock_window_tracker.window_service = mock_window_service
@@ -164,7 +160,7 @@ def test_mapping_engine_joystick_wasd():
     info = WindowInfo(x=0, y=0, width=1000, height=1000, focused=True)
     mock_window_service.get_window_info.return_value = info
 
-    engine = MappingEngine(mock_input, mock_mouse, mock_window_tracker, config)
+    engine = MappingEngine(mock_input, mock_touch, mock_window_tracker, config)
     engine.set_enabled(True)
 
     # Callbacks holen
@@ -179,19 +175,19 @@ def test_mapping_engine_joystick_wasd():
     # Down
     down_callback()
     QCoreApplication.processEvents()
-    # Joystick Zentrum (0.15, 0.75) -> swipe start
-    mock_mouse.press_relative.assert_called_once_with(0.15, 0.75, info)
+    # Joystick Zentrum (0.15, 0.75) -> swipe start (Slot 1)
+    mock_touch.press_relative.assert_called_once_with(0.15, 0.75, info, slot=1)
     # Und dann move zum Ziel (0.15, 0.70)
-    mock_mouse.move_relative.assert_called_once_with(0.15, 0.70, info)
+    mock_touch.move_relative.assert_called_once_with(0.15, 0.70, info, slot=1)
 
     # Up
     up_callback()
     QCoreApplication.processEvents()
-    mock_mouse.release_relative.assert_called_once_with(0.15, 0.75, info)
+    mock_touch.release_relative.assert_called_once_with(slot=1)
 
 def test_mapping_engine_joystick_diagonal():
     mock_input = MagicMock(spec=InputService)
-    mock_mouse = MagicMock(spec=MouseService)
+    mock_touch = MagicMock(spec=TouchService)
     mock_window_tracker = MagicMock(spec=WindowTracker)
     mock_window_service = MagicMock()
     mock_window_tracker.window_service = mock_window_service
@@ -206,7 +202,7 @@ def test_mapping_engine_joystick_diagonal():
     info = WindowInfo(x=0, y=0, width=1000, height=1000, focused=True)
     mock_window_service.get_window_info.return_value = info
 
-    engine = MappingEngine(mock_input, mock_mouse, mock_window_tracker, config)
+    engine = MappingEngine(mock_input, mock_touch, mock_window_tracker, config)
     engine.set_enabled(True)
 
     callbacks = {}
@@ -217,7 +213,7 @@ def test_mapping_engine_joystick_diagonal():
     # W drücken
     callbacks["W"][0]()
     QCoreApplication.processEvents()
-    mock_mouse.press_relative.assert_called_with(0.15, 0.75, info)
+    mock_touch.press_relative.assert_called_with(0.15, 0.75, info, slot=1)
 
     # D dazu drücken
     callbacks["D"][0]()
@@ -228,8 +224,9 @@ def test_mapping_engine_joystick_diagonal():
     # Target approx (0.185, 0.715)
 
     # Wir prüfen einfach ob move_relative gerufen wurde
-    last_move_call = mock_mouse.move_relative.call_args_list[-1]
-    tx, ty, _ = last_move_call[0]
+    args, kwargs = mock_touch.move_relative.call_args_list[-1]
+    tx, ty, _ = args
+    assert kwargs.get("slot") == 1
     assert 0.18 < tx < 0.19
     assert 0.71 < ty < 0.72
 
@@ -237,10 +234,40 @@ def test_mapping_engine_joystick_diagonal():
     callbacks["W"][1]()
     QCoreApplication.processEvents()
     # Jetzt nur noch D aktiv -> Move to East (0.20, 0.75)
-    mock_mouse.move_relative.assert_called_with(0.20, 0.75, info)
+    mock_touch.move_relative.assert_called_with(0.20, 0.75, info, slot=1)
 
     # D loslassen
     callbacks["D"][1]()
     QCoreApplication.processEvents()
     # Release
-    mock_mouse.release_relative.assert_called_with(0.15, 0.75, info)
+    mock_touch.release_relative.assert_called_with(slot=1)
+
+def test_mapping_engine_picker_mode():
+    mock_input = MagicMock(spec=InputService)
+    mock_touch = MagicMock(spec=TouchService)
+    mock_window_tracker = MagicMock(spec=WindowTracker)
+    mock_window_service = MagicMock()
+    mock_window_tracker.window_service = mock_window_service
+
+    config = AppConfig(states={"game": StateConfig(keybinds={})})
+    engine = MappingEngine(mock_input, mock_touch, mock_window_tracker, config)
+
+    # Provider für Maus-Position
+    engine.set_mouse_pos_provider(lambda: (200, 200))
+
+    # Fenster bei (100, 100) mit Größe 400x400
+    from silkroad_companion.domain.models import WindowInfo
+    info = WindowInfo(x=100, y=100, width=400, height=400, focused=True)
+    mock_window_service.get_window_info.return_value = info
+
+    # Picker aktivieren
+    engine.toggle_picker_mode()
+    assert engine._picker_mode is True
+
+    # Klick simulieren (Pixel 200, 200) -> Relativ 0.25, 0.25 (da (200-100)/400 = 0.25)
+    from unittest.mock import patch
+    with patch("builtins.print") as mock_print:
+        engine.handle_mouse_click()
+        # Prüfen ob die Koordinaten im Print vorkommen
+        printed_text = "".join([str(call.args[0]) for call in mock_print.call_args_list])
+        assert "0.2500" in printed_text
