@@ -89,6 +89,10 @@ class WindowDebugger(QMainWindow):
         # Picker-Modus Status
         self._picker_mode = False
         
+        # Letzte Cursor-Position für Anzeige
+        self._last_cursor_pos = (0, 0)
+        self._last_window_info = None
+        
         # Setup UI
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -211,7 +215,7 @@ class WindowDebugger(QMainWindow):
         
         abs_x, abs_y = cursor_pos
         
-        # Relative Koordinaten berechnen
+        # Relative Koordinaten berechnen (relativ zum Waydroid-Fenster)
         rel_x = (abs_x - window_info.x) / window_info.width
         rel_y = (abs_y - window_info.y) / window_info.height
         
@@ -219,7 +223,9 @@ class WindowDebugger(QMainWindow):
         in_window = 0 <= rel_x <= 1 and 0 <= rel_y <= 1
         status = "IM FENSTER" if in_window else "AUSSERHALB"
         
-        # uinput-Koordinaten berechnen
+        # uinput-Koordinaten berechnen (absolut auf dem Bildschirm)
+        # WICHTIG: Die Touch-Koordinaten müssen relativ zum gesamten Bildschirm sein,
+        # nicht zum Fenster! Denn uinput simuliert einen Touchscreen über den gesamten Bildschirm.
         calibrated_x = (abs_x * self.touch_service.calibration_scale_x) + self.touch_service.calibration_offset_x
         calibrated_y = (abs_y * self.touch_service.calibration_scale_y) + self.touch_service.calibration_offset_y
         
@@ -234,6 +240,10 @@ class WindowDebugger(QMainWindow):
             f"Status: {status}"
         )
         self.cursor_info_label.setText(info_text)
+        
+        # Für die Capture-Funktion speichern
+        self._last_cursor_pos = cursor_pos
+        self._last_window_info = window_info
 
     def capture_cursor_position(self) -> None:
         """Captures the current cursor position and displays coordinates"""
@@ -246,7 +256,7 @@ class WindowDebugger(QMainWindow):
         
         abs_x, abs_y = cursor_pos
         
-        # Relative Koordinaten berechnen
+        # Relative Koordinaten berechnen (relativ zum Waydroid-Fenster)
         rel_x = (abs_x - window_info.x) / window_info.width
         rel_y = (abs_y - window_info.y) / window_info.height
         
@@ -254,7 +264,7 @@ class WindowDebugger(QMainWindow):
         in_window = 0 <= rel_x <= 1 and 0 <= rel_y <= 1
         status = "IM FENSTER" if in_window else "AUSSERHALB"
         
-        # uinput-Koordinaten berechnen
+        # uinput-Koordinaten berechnen (absolut auf dem Bildschirm)
         calibrated_x = (abs_x * self.touch_service.calibration_scale_x) + self.touch_service.calibration_offset_x
         calibrated_y = (abs_y * self.touch_service.calibration_scale_y) + self.touch_service.calibration_offset_y
         
@@ -265,9 +275,14 @@ class WindowDebugger(QMainWindow):
         self.info_display.append("\n" + "=" * 60)
         self.info_display.append("CAPTURED CURSOR POSITION (F9)")
         self.info_display.append("=" * 60)
-        self.info_display.append(f"Absolute Position: ({abs_x}, {abs_y})")
-        self.info_display.append(f"Relative Koordinaten: x: {rel_x:.4f}, y: {rel_y:.4f} ({status})")
+        self.info_display.append(f"Absolute Position (Bildschirm): ({abs_x}, {abs_y})")
+        self.info_display.append(f"Fenster-Position: ({window_info.x}, {window_info.y}), Größe: {window_info.width}x{window_info.height}")
+        self.info_display.append(f"Relative Koordinaten (zum Fenster): x: {rel_x:.4f}, y: {rel_y:.4f} ({status})")
         self.info_display.append(f"uinput Koordinaten: ({tx}, {ty})")
+        
+        # WICHTIG: Für Touch-Klicks müssen wir die relativen Koordinaten zum Fenster verwenden!
+        # Denn click_relative() erwartet relative Fensterkoordinaten.
+        self.info_display.append(f"\n-> Für Touch-Klicks diese relativen Koordinaten verwenden: ({rel_x:.4f}, {rel_y:.4f})")
         self.info_display.append("=" * 60)
         
         if not in_window:
@@ -286,7 +301,8 @@ class WindowDebugger(QMainWindow):
         info_text += f"Waydroid fokussiert: {is_focused}\n"
         info_text += f"Fenster-Titel: {self.focus_service.get_active_window_title() or 'Unbekannt'}\n"
         info_text += f"Cursor Position: {cursor_pos}\n"
-        info_text += f"Picker Modus: {'AKTIV' if self._picker_mode else 'INAKTIV'} (F8 zum Umschalten)\n\n"
+        info_text += f"Picker Modus: {'AKTIV' if self._picker_mode else 'INAKTIV'} (F8 zum Umschalten)\n"
+        info_text += f"Letzte Capture: {self._last_cursor_pos} (F9)\n\n"
         
         if window_info.width > 0:
             info_text += "Fenster-Geometrie:\n"
