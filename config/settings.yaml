@@ -9,8 +9,11 @@ states:
       radius: 0.05
     keybinds:
       "F8":
-        action: "test_click"
-        description: "Test Klick Phase 6"
+        action: "toggle_picker"
+        description: "Koordinaten-Picker aktivieren/deaktivieren"
+      "F9":
+        action: "capture_cursor"
+        description: "Aktuelle Cursor-Position capturen und Koordinaten anzeigen"
       "1":
         action: "skill_1"
         x: -0.0570
