@@ -3,6 +3,7 @@ import evdev
 from evdev import ecodes, UInput, AbsInfo
 from silkroad_companion.domain.input_service import TouchService
 from silkroad_companion.domain.models import WindowInfo
+from silkroad_companion.domain.config import TouchCalibration
 import time
 
 logger = logging.getLogger(__name__)
@@ -15,6 +16,13 @@ class EvdevTouchService(TouchService):
         self.screen_height = 1080 # Default
         self.offset_x = 0
         self.offset_y = 0
+        
+        # Kalibrierungsparameter
+        self.calibration_scale_x = 1.0
+        self.calibration_scale_y = 1.0
+        self.calibration_offset_x = 0
+        self.calibration_offset_y = 0
+        
         self._ui = self._create_uinput_device()
         self._active_slots: dict[int, int] = {} # slot -> tracking_id
         self._next_tracking_id = 1
@@ -26,12 +34,21 @@ class EvdevTouchService(TouchService):
         self.offset_x = offset_x
         self.offset_y = offset_y
 
+    def set_calibration(self, calibration: TouchCalibration) -> None:
+        """Setzt die Kalibrierungsparameter für den Touchscreen."""
+        self.calibration_scale_x = calibration.scale_x
+        self.calibration_scale_y = calibration.scale_y
+        self.calibration_offset_x = calibration.offset_x
+        self.calibration_offset_y = calibration.offset_y
+        logger.info(f"Touch-Kalibrierung gesetzt: scale=({calibration.scale_x}, {calibration.scale_y}), "
+                   f"offset=({calibration.offset_x}, {calibration.offset_y})")
+
     def reset(self) -> None:
         if not self._ui:
             return
         logger.info("Touch-Service Reset: Alle Slots loslassen")
         try:
-            # Alle aktiven Slots nacheinander schließen
+            # Alle aktiven Slots nacheinander schlie7en
             for slot in list(self._active_slots.keys()):
                 self._ui.write(ecodes.EV_ABS, ecodes.ABS_MT_SLOT, slot)
                 self._ui.write(ecodes.EV_ABS, ecodes.ABS_MT_TRACKING_ID, -1)
@@ -69,7 +86,7 @@ class EvdevTouchService(TouchService):
             logger.info("Virtueller Touchscreen via uinput erstellt.")
             return ui
         except Exception as e:
-            logger.error(f"Fehler beim Erstellen des uinput Touch-Geräts: {e}")
+            logger.error(f"Fehler beim Erstellen des uinput Touch-Ger\u00e4ts: {e}")
             return None
 
     def _get_abs_coords(self, x: float, y: float, window_info: WindowInfo) -> tuple[int, int]:
@@ -77,17 +94,23 @@ class EvdevTouchService(TouchService):
         abs_px_x = window_info.x + (window_info.width * x)
         abs_px_y = window_info.y + (window_info.height * y)
 
-        logger.info(f"Touch-Mapping: Rel ({x}, {y}) -> Abs Pixel ({int(abs_px_x)}, {int(abs_px_y)})")
+        logger.debug(f"Touch-Mapping: Rel ({x}, {y}) -> Abs Pixel ({int(abs_px_x)}, {int(abs_px_y)})")
 
-        # Skalierung auf uinput-Bereich (0..max_x) basierend auf Screen-Größe
-        # Wir müssen den Desktop-Offset abziehen, um bei der Gesamt-Desktop-Breite/Höhe
+        # Kalibrierung anwenden
+        calibrated_x = (abs_px_x * self.calibration_scale_x) + self.calibration_offset_x
+        calibrated_y = (abs_px_y * self.calibration_scale_y) + self.calibration_offset_y
+
+        logger.debug(f"Touch-Mapping: Kalibriert ({int(calibrated_x)}, {int(calibrated_y)})")
+
+        # Skalierung auf uinput-Bereich (0..max_x) basierend auf Screen-Gr\u00f6\u00dfe
+        # Wir m\u00fcssen den Desktop-Offset abziehen, um bei der Gesamt-Desktop-Breite/H\u00f6he
         # die korrekte relative Position zu finden.
-        tx = int(((abs_px_x - self.offset_x) / self.screen_width) * self.max_x)
-        ty = int(((abs_px_y - self.offset_y) / self.screen_height) * self.max_y)
+        tx = int(((calibrated_x - self.offset_x) / self.screen_width) * self.max_x)
+        ty = int(((calibrated_y - self.offset_y) / self.screen_height) * self.max_y)
 
-        logger.info(f"Touch-Mapping: uinput coords ({tx}, {ty})")
+        logger.debug(f"Touch-Mapping: uinput coords ({tx}, {ty})")
 
-        # Begrenzung auf gültigen Bereich
+        # Begrenzung auf g\u00fcltigen Bereich
         tx = max(0, min(self.max_x, tx))
         ty = max(0, min(self.max_y, ty))
 
@@ -120,13 +143,13 @@ class EvdevTouchService(TouchService):
             self._ui.write(ecodes.EV_ABS, ecodes.ABS_MT_TOUCH_MAJOR, 5)
             self._ui.write(ecodes.EV_ABS, ecodes.ABS_MT_PRESSURE, 50)
 
-            # Für Single-Touch Kompatibilität (ABS_X/Y)
+            # F\u00fcr Single-Touch Kompatibilit\u00e4t (ABS_X/Y)
             if slot == 0:
                 self._ui.write(ecodes.EV_ABS, ecodes.ABS_X, tx)
                 self._ui.write(ecodes.EV_ABS, ecodes.ABS_Y, ty)
 
             self._ui.syn()
-            logger.debug(f"Touch-Press Slot {slot} bei ({tx}, {ty}), TID {tid}")
+            logger.info(f"Touch-Press Slot {slot} bei ({tx}, {ty}), TID {tid}")
 
         except Exception as e:
             logger.error(f"Fehler bei Touch-Press: {e}")

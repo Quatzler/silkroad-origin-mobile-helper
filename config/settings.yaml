@@ -1,3 +1,11 @@
+# Touch-Kalibrierung
+# Verwende calibrate_touch.py um die richtigen Werte zu finden
+touch_calibration:
+  scale_x: 1.0
+  scale_y: 1.0
+  offset_x: 0
+  offset_y: 0
+
 refresh_rate_ms: 500
 debug_mode: true
 
@@ -88,6 +96,9 @@ states:
         action: "move_backward"
       "D":
         action: "move_right"
+      "ESC":
+        action: "toggle_picker"
+        description: "Koordinaten-Picker umschalten"
   menu:
     keybinds:
       "ESC":

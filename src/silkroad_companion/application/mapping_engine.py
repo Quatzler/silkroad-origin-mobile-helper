@@ -26,6 +26,11 @@ class MappingEngine:
         self._active_directions: set[str] = set()
         self._picker_mode = False
         self._mouse_pos_provider: Optional[Callable[[], tuple[int, int]]] = None
+        
+        # Separate Slots für verschiedene Touch-Typen
+        # Slot 0: Klicks (Skills, Buttons)
+        # Slot 1: Joystick (Bewegung)
+        # Slot 2-9: Reserviert für zukünftige Nutzung
 
     def set_mouse_pos_provider(self, provider: Callable[[], tuple[int, int]]) -> None:
         self._mouse_pos_provider = provider
@@ -53,7 +58,7 @@ class MappingEngine:
         rel_x = (abs_x - window_info.x) / window_info.width
         rel_y = (abs_y - window_info.y) / window_info.height
 
-        # Prüfung ob Klick im Fenster liegt
+        # Pr7fung ob Klick im Fenster liegt
         in_window = 0 <= rel_x <= 1 and 0 <= rel_y <= 1
         status = "IM FENSTER" if in_window else "AUSSERHALB"
 
@@ -160,6 +165,7 @@ class MappingEngine:
             return
 
         # Phase 10: Joystick Simulation (WASD)
+        # WICHTIG: Joystick nutzt Slot 1, damit er unabhängig von Klicks (Slot 0) ist
         if is_joystick:
             self._handle_joystick(action, is_down, window_info)
             return
@@ -171,9 +177,6 @@ class MappingEngine:
         # Phase 6: Test-Klick bei F8 (oder Picker-Modus umschalten)
         if action == "test_click" or action == "toggle_picker":
             self.toggle_picker_mode()
-            # Optional: Trotzdem Klick ausführen für Feedback?
-            # Der User wollte es als Alternative, also machen wir erst mal nur Picker.
-            # self.touch_service.click_relative(0.5, 0.5, window_info, slot=0)
 
         # Phase 8: Zurück-Button Klick (oben links) im Inventar oder Menüs
         elif action == "back_button_click":
@@ -200,8 +203,30 @@ class MappingEngine:
             except (ValueError, IndexError):
                 logger.error(f"Ungültige Skill-Aktion: {action}")
 
+        # Phase 9: Attack (Space)
+        elif action == "attack":
+            # Angriffs-Button ist typischerweise unten rechts
+            rel_x, rel_y = 0.95, 0.9
+            print(f"Angriff-Klick bei ({rel_x}, {rel_y})", flush=True)
+            self.touch_service.click_relative(rel_x, rel_y, window_info, slot=0)
+
+        # Inventar, Map, Char Buttons
+        elif action == "inventory":
+            rel_x, rel_y = 0.85, 0.05
+            self.touch_service.click_relative(rel_x, rel_y, window_info, slot=0)
+        elif action == "map":
+            rel_x, rel_y = 0.15, 0.225
+            self.touch_service.click_relative(rel_x, rel_y, window_info, slot=0)
+        elif action == "char":
+            rel_x, rel_y = 0.05, 0.05
+            self.touch_service.click_relative(rel_x, rel_y, window_info, slot=0)
+
     def _handle_joystick(self, action: str, is_down: bool, window_info: "WindowInfo") -> None:
-        """Simuliert den virtuellen Joystick für Bewegungen."""
+        """Simuliert den virtuellen Joystick für Bewegungen.
+        
+        WICHTIG: Der Joystick nutzt Slot 1, damit er unabhängig von Klicks (Slot 0) ist.
+        Dies ermöglicht gleichzeitiges Laufen (WASD) und Kamera-Drehen (Maus).
+        """
         state_cfg = self.config.states.get(self._current_state)
         joy_cfg = None
         if state_cfg and state_cfg.joystick:

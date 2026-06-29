@@ -1,7 +1,6 @@
 import sys
 
 from PySide6.QtWidgets import QApplication
-
 from PySide6.QtGui import QCursor
 from PySide6.QtCore import QTimer
 from silkroad_companion.application.focus_tracker import FocusTracker
@@ -32,7 +31,7 @@ def main() -> None:
     input_service = EvdevInputService()
     touch_service = EvdevTouchService()
 
-    # Bildschirmgröße für Touch-Mapping setzen (Gesamter Desktop-Bereich)
+    # Bildschirmgr\u00f6\u00dfe f\u00fcr Touch-Mapping setzen (Gesamter Desktop-Bereich)
     total_rect = None
     for screen in app.screens():
         if total_rect is None:
@@ -47,12 +46,15 @@ def main() -> None:
             total_rect.x(),
             total_rect.y()
         )
+        
+        # Touch-Kalibrierung aus Config laden
+        touch_service.set_calibration(config.touch_calibration)
 
     vision_service = OpenCVVisionService()
     vision_engine = VisionEngine(vision_service, window_tracker)
     mapping_engine = MappingEngine(input_service, touch_service, window_tracker, config)
 
-    # Mouse-Position Provider für Koordinaten-Picker setzen
+    # Mouse-Position Provider f\u00fcr Koordinaten-Picker setzen
     mapping_engine.set_mouse_pos_provider(lambda: focus_service.get_cursor_pos())
 
     window = MainWindow(focus_tracker, window_tracker, vision_engine, config, mapping_engine, config_loader)
