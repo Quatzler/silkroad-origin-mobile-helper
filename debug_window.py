@@ -17,6 +17,7 @@ Verwendung als Klasse:
 import sys
 import os
 import time
+from threading import Thread, Event
 
 # Add src directory to python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
@@ -30,13 +31,44 @@ from PySide6.QtWidgets import (
     QPushButton, 
     QTextEdit, 
     QHBoxLayout,
-    QLineEdit
+    QLineEdit,
+    QGroupBox,
 )
-from PySide6.QtCore import Qt, QTimer, QPoint
+from PySide6.QtCore import Qt, QTimer, Signal, QObject
 from PySide6.QtGui import QKeyEvent
 from silkroad_companion.infrastructure.kwin_focus_service import KWinFocusService
 from silkroad_companion.infrastructure.touch_input_service import EvdevTouchService
 from silkroad_companion.domain.models import WindowInfo
+
+
+class GlobalHotkeyListener(QObject):
+    """Listener für globale Hotkeys (F9) mit pynput"""
+    f9_pressed = Signal()
+    
+    def __init__(self):
+        super().__init__()
+        self._stop_event = Event()
+        self._listener = None
+        self._start_listener()
+    
+    def _start_listener(self):
+        """Startet den globalen Hotkey-Listener"""
+        try:
+            from pynput.keyboard import Listener, Key
+            
+            def on_press(key):
+                if key == Key.f9:
+                    self.f9_pressed.emit()
+            
+            self._listener = Listener(on_press=on_press, daemon=True)
+            self._listener.start()
+        except Exception as e:
+            print(f"Warnung: Globaler Hotkey-Listener konnte nicht gestartet werden: {e}")
+    
+    def stop(self):
+        """Stoppt den Listener"""
+        if self._listener:
+            self._listener.stop()
 
 
 class WindowDebugger(QMainWindow):
@@ -54,6 +86,9 @@ class WindowDebugger(QMainWindow):
         self.focus_service = KWinFocusService()
         self.touch_service = EvdevTouchService()
         
+        # Picker-Modus Status
+        self._picker_mode = False
+        
         # Setup UI
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -65,16 +100,27 @@ class WindowDebugger(QMainWindow):
         header_label.setStyleSheet("font-size: 16px; font-weight: bold;")
         layout.addWidget(header_label)
         
-        # Info Display
+        # Picker Mode Control
+        picker_layout = QHBoxLayout()
+        self.picker_button = QPushButton("Picker Modus: INAKTIV (F8)")
+        self.picker_button.clicked.connect(self.toggle_picker_mode)
+        picker_layout.addWidget(self.picker_button)
+        layout.addLayout(picker_layout)
+        
+        # Cursor Capture Display (dauerhaft sichtbar)
+        self.cursor_group = QGroupBox("Cursor Position (Live)")
+        self.cursor_layout = QVBoxLayout()
+        self.cursor_info_label = QLabel("Picker Modus aktivieren, um Cursor-Position zu sehen")
+        self.cursor_info_label.setStyleSheet("font-family: monospace;")
+        self.cursor_layout.addWidget(self.cursor_info_label)
+        self.cursor_group.setLayout(self.cursor_layout)
+        layout.addWidget(self.cursor_group)
+        
+        # Info Display (für Fenster-Geometrie etc.)
         self.info_display = QTextEdit()
         self.info_display.setReadOnly(True)
         self.info_display.setStyleSheet("font-family: monospace;")
         layout.addWidget(self.info_display)
-        
-        # Cursor Capture Button
-        self.capture_button = QPushButton("Cursor Position Capturen (F9)")
-        self.capture_button.clicked.connect(self.capture_cursor_position)
-        layout.addWidget(self.capture_button)
         
         # Test Controls
         test_layout = QHBoxLayout()
@@ -92,15 +138,23 @@ class WindowDebugger(QMainWindow):
         # Setup screen size
         self.setup_screen_size()
         
+        # Global Hotkey Listener für F9
+        self.hotkey_listener = GlobalHotkeyListener()
+        self.hotkey_listener.f9_pressed.connect(self.capture_cursor_position)
+        
         # Timer für regelmäßige Updates
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_info)
-        self.timer.start(1000)  # 1 Sekunde
+        self.timer.start(1000)  # Standard: 1 Sekunde
+        
+        # Schnellere Updates im Picker-Modus
+        self.picker_timer = QTimer(self)
+        self.picker_timer.timeout.connect(self.update_cursor_info)
         
         # Erstes Update
         self.update_info()
         
-        # Enable key press events
+        # Enable key press events für F8
         self.setFocusPolicy(Qt.StrongFocus)
 
     def setup_screen_size(self):
@@ -123,11 +177,63 @@ class WindowDebugger(QMainWindow):
                 )
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        """Handle key press events for hotkeys"""
-        if event.key() == Qt.Key_F9:
-            self.capture_cursor_position()
+        """Handle key press events für F8"""
+        if event.key() == Qt.Key_F8:
+            self.toggle_picker_mode()
         else:
             super().keyPressEvent(event)
+
+    def toggle_picker_mode(self) -> None:
+        """Aktiviert/Deaktiviert den Picker-Modus"""
+        self._picker_mode = not self._picker_mode
+        if self._picker_mode:
+            self.picker_button.setText("Picker Modus: AKTIV (F8 zum Deaktivieren)")
+            self.cursor_group.setTitle("Cursor Position (Live - F9 zum Capturen)")
+            # Schnellere Updates starten (100ms)
+            self.picker_timer.start(100)
+        else:
+            self.picker_button.setText("Picker Modus: INAKTIV (F8)")
+            self.cursor_group.setTitle("Cursor Position (Live)")
+            self.picker_timer.stop()
+            self.cursor_info_label.setText("Picker Modus aktivieren, um Cursor-Position zu sehen")
+
+    def update_cursor_info(self) -> None:
+        """Aktualisiert die Cursor-Positions-Info in Echtzeit"""
+        if not self._picker_mode:
+            return
+        
+        cursor_pos = self.focus_service.get_cursor_pos()
+        window_info = self.focus_service.get_window_info()
+        
+        if not window_info or window_info.width <= 0:
+            self.cursor_info_label.setText("Kein Fenster gefunden")
+            return
+        
+        abs_x, abs_y = cursor_pos
+        
+        # Relative Koordinaten berechnen
+        rel_x = (abs_x - window_info.x) / window_info.width
+        rel_y = (abs_y - window_info.y) / window_info.height
+        
+        # Prüfung ob Cursor im Fenster liegt
+        in_window = 0 <= rel_x <= 1 and 0 <= rel_y <= 1
+        status = "IM FENSTER" if in_window else "AUSSERHALB"
+        
+        # uinput-Koordinaten berechnen
+        calibrated_x = (abs_x * self.touch_service.calibration_scale_x) + self.touch_service.calibration_offset_x
+        calibrated_y = (abs_y * self.touch_service.calibration_scale_y) + self.touch_service.calibration_offset_y
+        
+        tx = int(((calibrated_x - self.touch_service.offset_x) / self.touch_service.screen_width) * self.touch_service.max_x)
+        ty = int(((calibrated_y - self.touch_service.offset_y) / self.touch_service.screen_height) * self.touch_service.max_y)
+        
+        # Ausgabe aktualisieren
+        info_text = (
+            f"Absolut: ({abs_x}, {abs_y}) | "
+            f"Relativ: ({rel_x:.4f}, {rel_y:.4f}) | "
+            f"uinput: ({tx}, {ty}) | "
+            f"Status: {status}"
+        )
+        self.cursor_info_label.setText(info_text)
 
     def capture_cursor_position(self) -> None:
         """Captures the current cursor position and displays coordinates"""
@@ -157,7 +263,7 @@ class WindowDebugger(QMainWindow):
         
         # Ausgabe
         self.info_display.append("\n" + "=" * 60)
-        self.info_display.append("CAPTURED CURSOR POSITION")
+        self.info_display.append("CAPTURED CURSOR POSITION (F9)")
         self.info_display.append("=" * 60)
         self.info_display.append(f"Absolute Position: ({abs_x}, {abs_y})")
         self.info_display.append(f"Relative Koordinaten: x: {rel_x:.4f}, y: {rel_y:.4f} ({status})")
@@ -179,7 +285,8 @@ class WindowDebugger(QMainWindow):
         
         info_text += f"Waydroid fokussiert: {is_focused}\n"
         info_text += f"Fenster-Titel: {self.focus_service.get_active_window_title() or 'Unbekannt'}\n"
-        info_text += f"Cursor Position: {cursor_pos}\n\n"
+        info_text += f"Cursor Position: {cursor_pos}\n"
+        info_text += f"Picker Modus: {'AKTIV' if self._picker_mode else 'INAKTIV'} (F8 zum Umschalten)\n\n"
         
         if window_info.width > 0:
             info_text += "Fenster-Geometrie:\n"
@@ -266,6 +373,11 @@ class WindowDebugger(QMainWindow):
     def get_focus_service(self):
         """Gibt den Focus-Service zurück für direkte Nutzung"""
         return self.focus_service
+
+    def closeEvent(self, event):
+        """Cleanup beim Schließen"""
+        self.hotkey_listener.stop()
+        super().closeEvent(event)
 
 
 def main():
