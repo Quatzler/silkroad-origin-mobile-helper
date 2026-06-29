@@ -32,7 +32,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLineEdit
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QPoint
+from PySide6.QtGui import QKeyEvent
 from silkroad_companion.infrastructure.kwin_focus_service import KWinFocusService
 from silkroad_companion.infrastructure.touch_input_service import EvdevTouchService
 from silkroad_companion.domain.models import WindowInfo
@@ -70,6 +71,11 @@ class WindowDebugger(QMainWindow):
         self.info_display.setStyleSheet("font-family: monospace;")
         layout.addWidget(self.info_display)
         
+        # Cursor Capture Button
+        self.capture_button = QPushButton("Cursor Position Capturen (F9)")
+        self.capture_button.clicked.connect(self.capture_cursor_position)
+        layout.addWidget(self.capture_button)
+        
         # Test Controls
         test_layout = QHBoxLayout()
         test_layout.addWidget(QLabel("Test X:"))
@@ -93,6 +99,9 @@ class WindowDebugger(QMainWindow):
         
         # Erstes Update
         self.update_info()
+        
+        # Enable key press events
+        self.setFocusPolicy(Qt.StrongFocus)
 
     def setup_screen_size(self):
         """Setup der Bildschirmgröße für den Touch-Service"""
@@ -112,6 +121,51 @@ class WindowDebugger(QMainWindow):
                     total_rect.x(),
                     total_rect.y()
                 )
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        """Handle key press events for hotkeys"""
+        if event.key() == Qt.Key_F9:
+            self.capture_cursor_position()
+        else:
+            super().keyPressEvent(event)
+
+    def capture_cursor_position(self) -> None:
+        """Captures the current cursor position and displays coordinates"""
+        cursor_pos = self.focus_service.get_cursor_pos()
+        window_info = self.focus_service.get_window_info()
+        
+        if not window_info or window_info.width <= 0:
+            self.info_display.append("\nFehler: Kein Fenster gefunden zum Berechnen der Koordinaten.")
+            return
+        
+        abs_x, abs_y = cursor_pos
+        
+        # Relative Koordinaten berechnen
+        rel_x = (abs_x - window_info.x) / window_info.width
+        rel_y = (abs_y - window_info.y) / window_info.height
+        
+        # Prüfung ob Cursor im Fenster liegt
+        in_window = 0 <= rel_x <= 1 and 0 <= rel_y <= 1
+        status = "IM FENSTER" if in_window else "AUSSERHALB"
+        
+        # uinput-Koordinaten berechnen
+        calibrated_x = (abs_x * self.touch_service.calibration_scale_x) + self.touch_service.calibration_offset_x
+        calibrated_y = (abs_y * self.touch_service.calibration_scale_y) + self.touch_service.calibration_offset_y
+        
+        tx = int(((calibrated_x - self.touch_service.offset_x) / self.touch_service.screen_width) * self.touch_service.max_x)
+        ty = int(((calibrated_y - self.touch_service.offset_y) / self.touch_service.screen_height) * self.touch_service.max_y)
+        
+        # Ausgabe
+        self.info_display.append("\n" + "=" * 60)
+        self.info_display.append("CAPTURED CURSOR POSITION")
+        self.info_display.append("=" * 60)
+        self.info_display.append(f"Absolute Position: ({abs_x}, {abs_y})")
+        self.info_display.append(f"Relative Koordinaten: x: {rel_x:.4f}, y: {rel_y:.4f} ({status})")
+        self.info_display.append(f"uinput Koordinaten: ({tx}, {ty})")
+        self.info_display.append("=" * 60)
+        
+        if not in_window:
+            self.info_display.append(f"Hinweis: Cursor liegt außerhalb des Fensters!")
 
     def update_info(self):
         """Aktualisiert die Debug-Informationen"""
